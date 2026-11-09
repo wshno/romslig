@@ -1,0 +1,9 @@
+# Keep the build context small and free of local state.
+.git
+.claude
+.playwright-mcp
+.env
+**/node_modules
+**/dist
+coverage
+data

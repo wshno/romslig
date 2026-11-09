@@ -1,3 +1,4 @@
+import type Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import {
   CATALOG,
@@ -12,8 +13,7 @@ import {
   type RecognizeResult,
   type RecognizedItem,
 } from '@romslig/shared'
-import { HttpError } from '../storage.ts'
-import { MODEL, anthropic, explainApiError } from './client.ts'
+import { AiError, MODEL, explainAiError, messageText } from './client.ts'
 import { catalogText } from './workspace.ts'
 
 export const RecognizeRequest = z.object({
@@ -68,42 +68,48 @@ Rules:
 Catalog (catalog_id | name | category | width×depth×height | free space):
 ${catalogText()}`
 
-/** Asks Claude what furniture the photos show and where it stands. */
-export async function recognizeFurniture(req: RecognizeRequest): Promise<RecognizeResult> {
+/** Asks Claude what furniture the photos show and where it stands. Errors are AiError (Norwegian). */
+export async function recognizeFurniture(
+  client: Anthropic,
+  req: RecognizeRequest,
+  signal?: AbortSignal,
+): Promise<RecognizeResult> {
   const scenario = req.project.scenarios.find((s) => s.id === req.project.activeScenarioId) ?? req.project.scenarios[0]!
   const room = scenario.rooms.find((r) => r.id === req.roomId)
-  if (!room) throw new HttpError(400, 'Fant ikke rommet')
+  if (!room) throw new AiError('Fant ikke rommet.', 'invalid')
 
   const description = buildDescription(req, scenario, room)
 
   try {
-    const stream = anthropic().beta.messages.stream({
-      model: MODEL,
-      max_tokens: 32000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'high', format: { type: 'json_schema', schema: z.toJSONSchema(Output) } },
-      system: SYSTEM,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            ...req.images.map(
-              (img) =>
-                ({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.data } }) as const,
-            ),
-            { type: 'text', text: description },
-          ],
-        },
-      ],
-    })
+    const stream = client.beta.messages.stream(
+      {
+        model: MODEL,
+        max_tokens: 32000,
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+        thinking: { type: 'adaptive' },
+        output_config: { effort: 'high', format: { type: 'json_schema', schema: z.toJSONSchema(Output) } },
+        system: SYSTEM,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              ...req.images.map(
+                (img) =>
+                  ({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.data } }) as const,
+              ),
+              { type: 'text', text: description },
+            ],
+          },
+        ],
+      },
+      { signal },
+    )
     const msg = await stream.finalMessage()
-    if (msg.stop_reason === 'refusal') throw new HttpError(502, 'Claude avslo forespørselen.')
-    if (msg.stop_reason === 'max_tokens') throw new HttpError(502, 'Svaret fra Claude ble avkuttet.')
-    const text = msg.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('')
-    const parsed = Output.safeParse(JSON.parse(text))
-    if (!parsed.success) throw new HttpError(502, 'Claude returnerte et ugyldig svar: ' + parsed.error.message)
+    if (msg.stop_reason === 'refusal') throw new AiError('Claude avslo forespørselen.', 'refusal')
+    if (msg.stop_reason === 'max_tokens') throw new AiError('Svaret fra Claude ble avkuttet.', 'truncated')
+    const parsed = Output.safeParse(JSON.parse(messageText(msg)))
+    if (!parsed.success) throw new AiError('Claude returnerte et ugyldig svar: ' + parsed.error.message, 'invalid')
     const items: RecognizedItem[] = parsed.data.items
       .filter((i) => catalogById.has(i.catalog_id))
       .map((i) => ({
@@ -117,7 +123,7 @@ export async function recognizeFurniture(req: RecognizeRequest): Promise<Recogni
       }))
     return { roomId: room.id, items, notes: parsed.data.notes }
   } catch (e) {
-    throw explainApiError(e)
+    throw explainAiError(e)
   }
 }
 

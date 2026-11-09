@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // Runs in the browser (and could run on the server): no Node types, so Node APIs fail the type check.
+  "compilerOptions": { "lib": ["ES2023", "DOM", "DOM.Iterable"], "types": [] },
+  "include": ["src"]
+}

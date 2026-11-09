@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { Project, ROOM_TYPES, type AssistantEvent, type ChatMessage } from '@romslig/shared'
-import { MODEL, anthropic, explainApiError } from './client.ts'
+import { MODEL, explainAiError } from './client.ts'
 import { buildTools } from './tools.ts'
 import { Workspace, catalogText } from './workspace.ts'
 
@@ -72,13 +72,18 @@ function contextBlock(ws: Workspace, roomId: string | null): string {
  * Runs one assistant turn: streams text and activity through `emit`, lets Claude use the tools on
  * a sandboxed copy of the project, and finishes with the new variants and notes.
  */
-export async function runAssistant(req: AssistantRequest, emit: (e: AssistantEvent) => void, signal: AbortSignal) {
+export async function runAssistant(
+  client: Anthropic,
+  req: AssistantRequest,
+  emit: (e: AssistantEvent) => void,
+  signal: AbortSignal,
+) {
   const ws = new Workspace(req.project)
   const tools = buildTools(ws, (text) => emit({ type: 'activity', text }))
   const turns: string[] = []
 
   try {
-    const runner = anthropic().beta.messages.toolRunner(
+    const runner = client.beta.messages.toolRunner(
       {
         model: MODEL,
         max_tokens: 32000,
@@ -126,7 +131,7 @@ export async function runAssistant(req: AssistantRequest, emit: (e: AssistantEve
     emit({ type: 'done', text: turns.join('\n\n'), scenarios: [...ws.drafts.values()], notes: ws.baseNotes })
   } catch (e) {
     if (signal.aborted) return
-    const err = explainApiError(e)
+    const err = explainAiError(e)
     console.error('assistant failed:', err)
     emit({ type: 'error', message: err.message })
   }
