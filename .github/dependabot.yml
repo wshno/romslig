@@ -1,0 +1,91 @@
+# Dependabot version updates. Options:
+# https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+
+version: 2
+updates:
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    open-pull-requests-limit: 20
+    target-branch: 'main'
+    schedule:
+      interval: 'weekly'
+      day: 'sunday'
+    assignees:
+      - 'hwinther'
+    groups:
+      reusable-workflows:
+        patterns:
+          - 'hwinther/reusable-workflows/*'
+
+  # Both images: the distroless node and static-server runtimes are pinned by digest, so Debian
+  # security rebuilds and static-server releases arrive as PRs.
+  - package-ecosystem: 'docker'
+    directories:
+      - '/apps/server'
+      - '/apps/web'
+    open-pull-requests-limit: 20
+    target-branch: 'main'
+    schedule:
+      interval: 'weekly'
+      day: 'sunday'
+    assignees:
+      - 'hwinther'
+
+  # One lock file at the root covers every workspace.
+  - package-ecosystem: 'npm'
+    directory: '/'
+    open-pull-requests-limit: 20
+    target-branch: 'main'
+    schedule:
+      interval: 'weekly'
+      day: 'sunday'
+    assignees:
+      - 'hwinther'
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-patch']
+      # typescript-eslint, which @wshno/eslint-config builds on, supports TypeScript <6.1. Drop this once a
+      # typescript-eslint release widens that range.
+      - dependency-name: 'typescript'
+        versions: ['>=6.1']
+    groups:
+      wshno:
+        patterns:
+          - '@wshno/*'
+      types:
+        patterns:
+          - '@types/*'
+      eslint:
+        patterns:
+          - 'eslint'
+          - 'eslint-*'
+          - '@eslint/*'
+          - '@typescript-eslint/*'
+          - '*/eslint-plugin'
+          - '*/eslint-plugin-*'
+      react:
+        patterns:
+          - 'react'
+          - 'react-*'
+          - '@types/react*'
+      three:
+        patterns:
+          - 'three'
+          - '@types/three'
+          - '@react-three/*'
+      vite:
+        patterns:
+          - 'vite'
+          - 'vite-*'
+          - '@vitejs/*'
+          - 'vitest'
+          - '@vitest/*'
+          - 'esbuild'
+      code-quality:
+        patterns:
+          - 'prettier'
+      build-tools:
+        patterns:
+          - 'typescript'
+          - 'typescript-*'
+          - 'tsx'

@@ -5,3 +5,4 @@ data/projects/*
 .env
 .playwright-mcp/
 .claude/
+coverage/

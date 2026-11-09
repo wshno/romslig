@@ -1,0 +1,76 @@
+# Romslig web: the Vite SPA on wshno/static-server, which also sets the CSP and the other security
+# headers. Variables: see api.yaml and README.md.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: romslig-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: romslig-web
+  template:
+    metadata:
+      labels:
+        app: romslig-web
+        app.kubernetes.io/name: romslig-web
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532 # the distroless image's `nonroot` user
+        fsGroup: 65532
+      containers:
+        - name: romslig-web
+          image: ghcr.io/wshno/romslig/web
+          # Releases pin tag@digest, so a cached image is always the right one.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          env:
+            # report-only: the CSP is sent as Content-Security-Policy-Report-Only (reported in the
+            # browser console, not enforced). enforce: sent as Content-Security-Policy.
+            - name: STATIC_SERVER_CONFIG
+              value: '/etc/static-server/static-server.${CSP_MODE:=report-only}.json'
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: romslig-web
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: romslig-web

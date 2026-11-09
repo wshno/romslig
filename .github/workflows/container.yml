@@ -1,0 +1,94 @@
+name: Publish release
+
+# Builds, scans and pushes the api and web images, then renders deploy/ with both pinned to
+# tag@digest and ships it as one signed OCI artifact (ghcr.io/wshno/romslig/manifests:<version>)
+# for Flux in hwinther/proxmox to pull. The tag push from tag-and-release starts this workflow at the
+# tag ref, so the artifact's cosign identity is container.yml@refs/tags/v*, which the cluster's
+# OCIRepository verify pins.
+
+on:
+  workflow_dispatch:
+    inputs:
+      grype_fail_build:
+        description: 'Fail the build if Grype finds vulnerabilities'
+        type: boolean
+        default: true
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.ref }}'
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Both Dockerfiles build from the repo root: npm ci needs the root lock file and every workspace.
+  api:
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      actions: write
+      security-events: write
+      pull-requests: write
+    uses: hwinther/reusable-workflows/.github/workflows/docker-container.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      container_registry: ghcr.io
+      container_image_name_postfix: api
+      # The GitHub Release already exists when tag-and-release pushes the tag, and attaching the
+      # SBOMs to it needs contents: write. They stay available as workflow artifacts.
+      release_asset_upload_enabled: false
+      build_context: '.'
+      dockerfile: apps/server/Dockerfile
+      grype_fail_build: ${{ github.event.inputs.grype_fail_build == 'false' && 'never' || 'auto' }}
+
+  web:
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      actions: write
+      security-events: write
+      pull-requests: write
+    uses: hwinther/reusable-workflows/.github/workflows/docker-container.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      container_registry: ghcr.io
+      container_image_name_postfix: web
+      # See api.
+      release_asset_upload_enabled: false
+      build_context: '.'
+      dockerfile: apps/web/Dockerfile
+      grype_fail_build: ${{ github.event.inputs.grype_fail_build == 'false' && 'never' || 'auto' }}
+
+  # Release builds only. Both images come from the same commit, so they share GitVersion's version.
+  manifests:
+    needs: [api, web]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Signed in this job (a composite action runs in the caller's job), so the identity is this
+      # workflow's. A single file at the root: the Flux Kustomization applies everything under its path.
+      - name: Render, validate, push and sign
+        uses: hwinther/reusable-workflows/.github/actions/manifests@1fa5882e8aa1048af78492baf016f5a7b310be11 # v2.29.0
+        with:
+          mode: push
+          artifact: ghcr.io/wshno/romslig/manifests
+          tag: ${{ needs.web.outputs.version }}
+          images: |
+            ghcr.io/wshno/romslig/api:${{ needs.web.outputs.version }}@${{ needs.api.outputs.image_digest }}
+            ghcr.io/wshno/romslig/web:${{ needs.web.outputs.version }}@${{ needs.web.outputs.image_digest }}
+          renders_file: .github/manifest-renders.txt

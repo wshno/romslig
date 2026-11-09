@@ -1,0 +1,48 @@
+# Local end-to-end stack: the same api and web images as in the cluster, PostgreSQL, and an nginx
+# in front that plays Authelia's forward auth (sets the Remote-* headers on every request).
+#   docker compose -f docker-compose.e2e.yml up --build
+# Open http://localhost:5173 (signed in as e2e-user, group romslig-users).
+name: romslig-e2e
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: romslig
+      POSTGRES_USER: romslig
+      POSTGRES_PASSWORD: romslig
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U romslig -d romslig']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    environment:
+      PG_HOST: postgres
+      PG_DB: romslig
+      PG_USER: romslig
+      PG_PASSWORD: romslig
+      AUTH_MODE: forward
+      AI_MODE: byok
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+
+  auth-proxy:
+    image: nginx:1.29-alpine
+    ports:
+      - '5173:8080'
+    volumes:
+      - ./e2e/auth-proxy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - web

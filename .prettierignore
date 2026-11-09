@@ -1,3 +1,7 @@
 package-lock.json
 data/
 .playwright-mcp/
+coverage/
+# Synced from wshno/devops: keep byte-identical to the source.
+.github/workflows/tag-and-release.yml
+.github/workflows/manifest-diff.yml

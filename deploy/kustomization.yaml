@@ -1,0 +1,18 @@
+# Workload manifests for Romslig, shipped as a signed OCI artifact
+# (ghcr.io/wshno/romslig/manifests:<version>) by the `manifests` job in container.yml.
+# The cluster side (namespace, network policies, database, Secrets, the Authelia forward-auth
+# Middleware, values for the ${VARS}) lives in hwinther/proxmox. See README.md for the contract.
+#
+# Never commit rendered output. CI pins the images to tag@digest at release time; the tags here are
+# only placeholders so `kubectl kustomize deploy` renders locally.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - api.yaml
+  - web.yaml
+  - httproute.yaml
+images:
+  - name: ghcr.io/wshno/romslig/api
+    newTag: 0.0.0-dev
+  - name: ghcr.io/wshno/romslig/web
+    newTag: 0.0.0-dev
