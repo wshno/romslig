@@ -6,6 +6,8 @@ import sharp from 'sharp'
 import { Project, emptyScenario, newId } from '@romslig/shared'
 import { HttpError, deleteProject, listProjects, loadProject, projectDir, saveProject } from './storage.ts'
 import { digitizeProject } from './ai/digitize.ts'
+import { AssistantRequest, runAssistant } from './ai/assistant.ts'
+import { streamSSE } from 'hono/streaming'
 
 const app = new Hono().basePath('/api')
 
@@ -35,6 +37,7 @@ app.post('/projects', async (c) => {
     northAngle: 0,
     scenarios: [scenario],
     activeScenarioId: scenario.id,
+    chat: [],
     createdAt: now,
     updatedAt: now,
   }
@@ -84,6 +87,26 @@ app.get('/projects/:id/plan', async (c) => {
 app.post('/projects/:id/digitize', async (c) => {
   const p = await loadProject(c.req.param('id'))
   return c.json(await digitizeProject(p))
+})
+
+app.post('/projects/:id/assistant', async (c) => {
+  const parsed = AssistantRequest.safeParse(await c.req.json())
+  if (!parsed.success) throw new HttpError(422, 'Ugyldig forespørsel: ' + parsed.error.message)
+  if (parsed.data.project.id !== c.req.param('id')) throw new HttpError(400, 'Id stemmer ikke')
+  return streamSSE(c, async (stream) => {
+    const abort = new AbortController()
+    stream.onAbort(() => abort.abort())
+    // Events are written in order; the stream stays open until the assistant is done
+    let queue = Promise.resolve()
+    await runAssistant(
+      parsed.data,
+      (event) => {
+        queue = queue.then(() => stream.writeSSE({ data: JSON.stringify(event) }))
+      },
+      abort.signal,
+    )
+    await queue
+  })
 })
 
 const port = Number(process.env.PORT ?? 8787)

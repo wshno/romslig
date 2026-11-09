@@ -1,4 +1,4 @@
-import type { DigitizeSuggestion, Project, ProjectSummary } from '@romslig/shared'
+import type { AssistantEvent, DigitizeSuggestion, Project, ProjectSummary } from '@romslig/shared'
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
@@ -33,4 +33,49 @@ export const api = {
   remove: (id: string) => req<void>(`/api/projects/${id}`, { method: 'DELETE' }),
   planUrl: (id: string) => `/api/projects/${id}/plan`,
   digitize: (id: string) => req<DigitizeSuggestion>(`/api/projects/${id}/digitize`, { method: 'POST' }),
+}
+
+/**
+ * Asks the assistant and yields its server-sent events as they arrive. The request carries the
+ * current project, so the assistant sees unsaved edits too.
+ */
+export async function* askAssistant(
+  project: Project,
+  roomId: string | null,
+  message: string,
+  signal: AbortSignal,
+): AsyncGenerator<AssistantEvent> {
+  const res = await fetch(`/api/projects/${project.id}/assistant`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project, roomId, message }),
+    signal,
+  })
+  if (!res.ok || !res.body) {
+    let msg = `${res.status} ${res.statusText}`
+    try {
+      msg = (await res.json()).error ?? msg
+    } catch {
+      /* not JSON */
+    }
+    throw new Error(msg)
+  }
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buffer = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += value
+    let end: number
+    while ((end = buffer.indexOf('\n\n')) >= 0) {
+      const chunk = buffer.slice(0, end)
+      buffer = buffer.slice(end + 2)
+      const data = chunk
+        .split('\n')
+        .filter((l) => l.startsWith('data:'))
+        .map((l) => l.slice(5).trimStart())
+        .join('\n')
+      if (data) yield JSON.parse(data) as AssistantEvent
+    }
+  }
 }

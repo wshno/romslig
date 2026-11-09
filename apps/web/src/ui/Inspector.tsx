@@ -15,8 +15,7 @@ import { api } from '../api.ts'
 import { activeScenario, useStore } from '../store.ts'
 import { ROOM_COLORS, ROOM_LABELS, fmtM, fmtM2 } from '../theme.ts'
 import { FurnitureCatalog, FurnitureList, FurnitureProps } from './FurniturePanel.tsx'
-
-type Tab = 'oversikt' | 'moebler'
+import { AssistantPanel, NotesList } from './AssistantPanel.tsx'
 
 export function Inspector() {
   const project = useStore((s) => s.project)!
@@ -26,8 +25,10 @@ export function Inspector() {
   const opening = selection?.kind === 'opening' ? scenario.openings.find((o) => o.id === selection.id) : undefined
   const room = selection?.kind === 'room' ? scenario.rooms.find((r) => r.id === selection.id) : undefined
   const furniture = selection?.kind === 'furniture' ? scenario.furniture.find((x) => x.id === selection.id) : undefined
-  const [tab, setTab] = useState<Tab>('oversikt')
-  let content = tab === 'oversikt' ? <Overview /> : <FurnitureTab />
+  const tab = useStore((s) => s.inspectorTab)
+  const setTab = useStore((s) => s.setInspectorTab)
+  const tabs = { oversikt: <Overview />, moebler: <FurnitureTab />, assistent: <AssistantPanel /> }
+  let content = tabs[tab]
   if (wall) content = <WallProps wall={wall} />
   else if (opening) content = <OpeningProps o={opening} />
   else if (room) content = <RoomProps room={room} />
@@ -41,6 +42,9 @@ export function Inspector() {
           </button>
           <button className={tab === 'moebler' ? 'active' : ''} onClick={() => setTab('moebler')}>
             Møbler
+          </button>
+          <button className={tab === 'assistent' ? 'active' : ''} onClick={() => setTab('assistent')}>
+            ✨ Assistent
           </button>
         </div>
       )}
@@ -220,6 +224,15 @@ function RoomProps({ room }: { room: Room }) {
       )}
       <h4>Møbler i rommet</h4>
       <FurnitureList roomId={room.id} />
+      <NotesList roomId={room.id} />
+      <button
+        onClick={() => {
+          useStore.getState().select(null)
+          useStore.getState().setInspectorTab('assistent')
+        }}
+      >
+        ✨ Spør assistenten om rommet
+      </button>
     </div>
   )
 }
@@ -289,6 +302,12 @@ function Overview() {
         )}
       </section>
 
+      {scenario.notes.length > 0 && (
+        <section>
+          <h4>Notater i «{scenario.name}»</h4>
+          <NotesList />
+        </section>
+      )}
       <section>
         <h4>Innstillinger</h4>
         <Num

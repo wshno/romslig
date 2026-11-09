@@ -12,6 +12,7 @@ const project = (calibrated: boolean, pxPerMeter = 100): Project => ({
   northAngle: 0,
   scenarios: [sc],
   activeScenarioId: sc.id,
+  chat: [],
   createdAt: '',
   updatedAt: '',
 })

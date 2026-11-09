@@ -18,7 +18,9 @@ npm test
 3. **Digitaliser med AI**: Claude foreslår vegger, dører, vinduer og rom (oransje overlegg). Godta eller forkast.
    Alternativt kan du tegne selv: Vegg (W), Dør (D), Vindu (N), Åpning (O), Rom (R).
 4. **Finn rom automatisk**: rom beregnes fra veggene (målt til innvendig veggflate), og avvik mot oppgitt m² vises.
-5. **Varianter**: kopier «Eksisterende» og prøv endringer (f.eks. riv en vegg) uten å røre originalen.
+5. **Møbler**: dra fra katalogen inn i 2D/3D. Møblene snapper mot vegg, og kollisjon, fri plass og dørslag sjekkes.
+6. **Assistent**: still spørsmål eller be om forslag. Konkrete forslag lages som nye varianter.
+7. **Varianter**: kopier «Eksisterende» og prøv endringer (f.eks. riv en vegg) uten å røre originalen.
 
 Snarveier: Ctrl+Z / Ctrl+Y, Delete, Esc, Shift = fri vinkel ved tegning, dobbeltklikk avslutter vegg.
 
@@ -34,7 +36,7 @@ Snarveier: Ctrl+Z / Ctrl+Y, Delete, Esc, Shift = fri vinkel ved tegning, dobbelt
 - [x] Fase 2: AI-digitalisering av plantegning med arealvalidering
 - [x] Fase 3: 3D-visning (fugleperspektiv, gå rundt, lave vegger, bærevegger)
 - [x] Fase 4: møbelkatalog (45 møbler), dra og slipp i 2D/3D, snapping mot vegg, sjekk av kollisjon, fri plass og dørslag
-- [ ] Fase 5: AI-assistent som foreslår møblering, materialer og veggendringer som egne varianter
+- [x] Fase 5: AI-assistent (chat) som svarer på spørsmål og lager forslag til møblering og veggendringer som egne varianter, med advarsler om bærevegg, våtrom og yttervegg
 - [ ] Senere: gjenkjenne eksisterende møbler fra bilder av rommene (AI) og legge dem inn i modellen
 
 > Riving eller flytting av vegger må alltid vurderes av fagperson (RIB). Appen gir forslag, ikke byggteknisk godkjenning.

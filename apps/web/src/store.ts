@@ -2,17 +2,17 @@ import { create } from 'zustand'
 import { temporal } from 'zundo'
 import {
   DEFAULTS,
-  detectRoomPolygons,
   getCatalogItem,
   itemSize,
   newId,
-  pointInPolygon,
+  redetectRooms,
   roomAt,
   snapToWall,
-  polygonCentroid,
+  type ChatMessage,
   type DigitizeSuggestion,
   type FurnitureItem,
   type Opening,
+  type Note,
   type OpeningKind,
   type Project,
   type Room,
@@ -23,6 +23,7 @@ import {
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'opening' | 'room' | 'calibrate'
 export type ViewMode = '2d' | '3d' | 'split'
+export type InspectorTab = 'oversikt' | 'moebler' | 'assistent'
 export type Selection = { kind: 'wall' | 'opening' | 'room' | 'furniture'; id: string } | null
 
 interface State {
@@ -31,6 +32,7 @@ interface State {
   view: ViewMode
   selection: Selection
   suggestion: DigitizeSuggestion | null
+  inspectorTab: InspectorTab
   /** True while a furniture item is dragged in 3D (orbit controls pause). */
   dragging3d: boolean
   /** Wall thickness used by the wall tool */
@@ -61,6 +63,19 @@ interface State {
   detectRooms(): number
   calibrate(pxDistance: number, meters: number): void
 
+  setInspectorTab(tab: InspectorTab): void
+  /**
+   * Stores a finished assistant exchange: both chat messages, the new variants and the notes for
+   * the variant the question was asked from.
+   */
+  applyAssistantResult(r: {
+    question: ChatMessage
+    answer: ChatMessage
+    scenarios: Scenario[]
+    notes: Note[]
+    baseScenarioId: string
+  }): void
+  deleteNote(scenarioId: string, noteId: string): void
   setSuggestion(s: DigitizeSuggestion | null): void
   acceptSuggestion(): void
 
@@ -84,6 +99,7 @@ export const useStore = create<State>()(
       selection: null,
       suggestion: null,
       dragging3d: false,
+      inspectorTab: 'oversikt',
       wallThickness: DEFAULTS.interiorWallThickness,
 
       load: (p) => set({ project: p, selection: null, suggestion: null, tool: 'select' }),
@@ -214,16 +230,9 @@ export const useStore = create<State>()(
 
       /** Re-detects rooms from walls, keeping name/type/stated area of rooms that still exist. */
       detectRooms: () => {
-        const s = activeScenario(get().project!)
-        const polys = detectRoomPolygons(s.walls)
-        const rooms: Room[] = polys.map((poly, i) => {
-          const prev = s.rooms.find((r) => r.polygon.length >= 3 && pointInPolygon(polygonCentroid(r.polygon), poly))
-          return prev
-            ? { ...prev, polygon: poly }
-            : { id: newId('r_'), name: `Rom ${i + 1}`, type: 'annet', polygon: poly, statedArea: null }
-        })
-        get().updateScenario((sc) => ({ ...sc, rooms }))
-        return rooms.length
+        const next = redetectRooms(activeScenario(get().project!))
+        get().updateScenario(() => next)
+        return next.rooms.length
       },
 
       /**
@@ -249,6 +258,23 @@ export const useStore = create<State>()(
         })
       },
 
+      setInspectorTab: (inspectorTab) => set({ inspectorTab }),
+      applyAssistantResult: ({ question, answer, scenarios, notes, baseScenarioId }) =>
+        get().updateProject((p) => ({
+          ...p,
+          chat: [...p.chat, question, answer],
+          scenarios: [
+            ...p.scenarios.map((s) => (s.id === baseScenarioId ? { ...s, notes: [...s.notes, ...notes] } : s)),
+            ...scenarios,
+          ],
+        })),
+      deleteNote: (scenarioId, noteId) =>
+        get().updateProject((p) => ({
+          ...p,
+          scenarios: p.scenarios.map((s) =>
+            s.id === scenarioId ? { ...s, notes: s.notes.filter((n) => n.id !== noteId) } : s,
+          ),
+        })),
       setSuggestion: (suggestion) => set({ suggestion }),
       acceptSuggestion: () => {
         const sug = get().suggestion

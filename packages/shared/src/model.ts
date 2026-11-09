@@ -108,6 +108,18 @@ export const Calibration = z.object({
 })
 export type Calibration = z.infer<typeof Calibration>
 
+export const ChatMessage = z.object({
+  id: z.string(),
+  role: z.enum(['user', 'assistant']),
+  text: z.string(),
+  createdAt: z.string(),
+  /** Room the question was about, if any. */
+  roomId: z.string().nullable().default(null),
+  /** Variants the assistant created while answering. */
+  scenarioIds: z.array(z.string()).default([]),
+})
+export type ChatMessage = z.infer<typeof ChatMessage>
+
 export const Project = z.object({
   id: z.string(),
   name: z.string(),
@@ -118,6 +130,7 @@ export const Project = z.object({
   northAngle: z.number().default(0),
   scenarios: z.array(Scenario).min(1),
   activeScenarioId: z.string(),
+  chat: z.array(ChatMessage).default([]),
   createdAt: z.string(),
   updatedAt: z.string(),
 })

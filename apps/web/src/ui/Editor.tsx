@@ -22,6 +22,7 @@ export function Editor({ projectId }: { projectId: string }) {
   const project = useStore((s) => s.project)
   const [error, setError] = useState<string | null>(null)
   const [save, setSave] = useState<SaveState>('saved')
+  const inspectorWide = useStore((s) => s.inspectorTab === 'assistent' && !s.selection)
 
   // Load
   useEffect(() => {
@@ -107,7 +108,7 @@ export function Editor({ projectId }: { projectId: string }) {
   if (!project) return <div className="home muted">Laster prosjekt…</div>
 
   return (
-    <div className="editor">
+    <div className={`editor${inspectorWide ? ' wide-inspector' : ''}`}>
       <TopBar save={save} />
       <Toolbar />
       <main className="views">
