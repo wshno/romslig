@@ -1,4 +1,5 @@
 import type { Note, Scenario } from './model.ts'
+import type { CatalogProposal } from './catalogProposal.ts'
 
 /** Server-sent events from the assistant endpoint, one JSON object per SSE message. */
 export type AssistantEvent =
@@ -28,6 +29,10 @@ export interface RecognizedItem {
   confidence: 'high' | 'medium' | 'low'
   /** 1-based index of the photo it is most visible in. */
   photo: number
+  /** How well the catalog item fits the real one. */
+  match: 'good' | 'approximate' | 'none'
+  /** A proposed new catalog item when the match is not good. */
+  proposal: CatalogProposal | null
 }
 
 export interface RecognizeResult {

@@ -16,24 +16,27 @@ export const CATEGORY_LABELS: Record<FurnitureCategory, string> = {
   kontor: 'Kontor',
 }
 
-export type FurnitureShape =
-  | 'box'
-  | 'sofa'
-  | 'armchair'
-  | 'bed'
-  | 'table'
-  | 'chair'
-  | 'cabinet'
-  | 'wardrobe'
-  | 'counter'
-  | 'appliance'
-  | 'wc'
-  | 'sink'
-  | 'shower'
-  | 'bathtub'
-  | 'rug'
-  | 'plant'
-  | 'tv'
+/** How an item is drawn in 3D. New shapes need code in the 3D view (Furniture3D). */
+export const FURNITURE_SHAPES = [
+  'box',
+  'sofa',
+  'armchair',
+  'bed',
+  'table',
+  'chair',
+  'cabinet',
+  'wardrobe',
+  'counter',
+  'appliance',
+  'wc',
+  'sink',
+  'shower',
+  'bathtub',
+  'rug',
+  'plant',
+  'tv',
+] as const
+export type FurnitureShape = (typeof FURNITURE_SHAPES)[number]
 
 export interface Clearance {
   /** Free space needed in front (m). */
@@ -603,8 +606,23 @@ export const CATALOG: CatalogItem[] = [
 
 export const catalogById: ReadonlyMap<string, CatalogItem> = new Map(CATALOG.map((c) => [c.id, c]))
 
+/** Prefix for the ids of a project's own furniture (not in the built-in catalog). */
+export const CUSTOM_PREFIX = 'custom_'
+export const isCustomCatalogId = (id: string) => id.startsWith(CUSTOM_PREFIX)
+
+let customById = new Map<string, CatalogItem>()
+
+/**
+ * Makes a project's own furniture available to getCatalogItem, so everything that looks items
+ * up by id (2D/3D drawing, collision and free-space checks, the AI) handles them like built-ins.
+ * Call it whenever the active project changes.
+ */
+export function setCustomCatalog(items: readonly CatalogItem[]) {
+  customById = new Map(items.map((c) => [c.id, c]))
+}
+
 export function getCatalogItem(id: string): CatalogItem {
-  const c = catalogById.get(id)
+  const c = catalogById.get(id) ?? customById.get(id)
   if (c) return c
   // Unknown id (catalog changed): keep the item visible as a generic box
   return { id, name: id, category: 'stue', w: 0.6, d: 0.6, h: 0.6, clearance: C(), shape: 'box', color: GREY }

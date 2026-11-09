@@ -1,5 +1,7 @@
 import {
   CATALOG,
+  setCustomCatalog,
+  type CatalogItem,
   FIXTURE_INFO,
   RUN_INFO,
   add,
@@ -38,6 +40,7 @@ export class Workspace {
   readonly baseNotes: Note[] = []
 
   constructor(readonly project: Project) {
+    setCustomCatalog(project.customFurniture)
     this.base = project.scenarios.find((s) => s.id === project.activeScenarioId) ?? project.scenarios[0]!
   }
 
@@ -187,17 +190,19 @@ export class Workspace {
 }
 
 /** The catalog as compact text lines for the system prompt (stable, so it caches). */
-export function catalogText(): string {
+export function catalogText(items: readonly CatalogItem[] = CATALOG): string {
   const cm = (m: number) => Math.round(m * 100)
-  return CATALOG.map((c) => {
-    const cl = c.clearance
-    const extra = [
-      c.elevation ? `mounted ${cm(c.elevation)} cm above floor` : '',
-      c.allowInClearance ? 'may stand in other items free space' : '',
-      c.collides === false ? 'never collides' : '',
-    ]
-      .filter(Boolean)
-      .join(', ')
-    return `${c.id} | ${c.name} | ${c.category} | ${cm(c.w)}×${cm(c.d)}×${cm(c.h)} cm | free space front ${cm(cl.front)}, sides ${cm(cl.sides)}, back ${cm(cl.back)} cm${extra ? ' | ' + extra : ''}`
-  }).join('\n')
+  return items
+    .map((c) => {
+      const cl = c.clearance
+      const extra = [
+        c.elevation ? `mounted ${cm(c.elevation)} cm above floor` : '',
+        c.allowInClearance ? 'may stand in other items free space' : '',
+        c.collides === false ? 'never collides' : '',
+      ]
+        .filter(Boolean)
+        .join(', ')
+      return `${c.id} | ${c.name} | ${c.category} | ${cm(c.w)}×${cm(c.d)}×${cm(c.h)} cm | free space front ${cm(cl.front)}, sides ${cm(cl.sides)}, back ${cm(cl.back)} cm${extra ? ' | ' + extra : ''}`
+    })
+    .join('\n')
 }

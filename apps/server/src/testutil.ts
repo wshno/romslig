@@ -50,6 +50,7 @@ export function makeProject(name = 'Test'): Project {
     scenarios: [s],
     activeScenarioId: s.id,
     chat: [],
+    customFurniture: [],
     version: 0,
     createdAt: now,
     updatedAt: now,

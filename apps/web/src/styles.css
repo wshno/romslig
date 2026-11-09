@@ -896,3 +896,34 @@ select {
 .api-key-button.set {
   color: var(--ok);
 }
+
+.proposal {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 2px 22px;
+  padding: 6px 8px;
+  border-left: 3px solid #f59e0b;
+  background: #fffbeb;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.proposal label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.proposal a {
+  color: var(--accent);
+}
+.match {
+  font-weight: 600;
+  color: #92400e;
+}
+.custom-badge {
+  font-size: 10px;
+  background: #fef3c7;
+  color: #92400e;
+  padding: 0 5px;
+  border-radius: 6px;
+  margin-left: 4px;
+}

@@ -11,6 +11,8 @@ import {
   type ChatMessage,
   type DigitizeSuggestion,
   type FurnitureItem,
+  type CustomFurniture,
+  setCustomCatalog,
   type Fixture,
   type FixtureKind,
   type LoweredCeiling,
@@ -83,6 +85,8 @@ interface State {
   addFurniture(catalogId: string, at: Vec2, opts?: { snap?: boolean; rotation?: number }): void
   /** Adds several finished items in one undo step. */
   addFurnitureItems(items: FurnitureItem[]): void
+  /** Adds furniture types of the project's own (not in the catalog). */
+  addCustomFurniture(items: CustomFurniture[]): void
   updateFurniture(id: string, patch: Partial<FurnitureItem>): void
   /** Moves an item, snapping it back against a nearby wall unless snap is false. */
   moveFurniture(id: string, to: Vec2, snap: boolean): void
@@ -262,6 +266,8 @@ export const useStore = create<State>()(
         get().updateScenario((s) => ({ ...s, furniture: [...s.furniture, item] }))
         set({ selection: { kind: 'furniture', id: item.id } })
       },
+      addCustomFurniture: (items) =>
+        get().updateProject((p) => ({ ...p, customFurniture: [...p.customFurniture, ...items] })),
       addFurnitureItems: (items) => get().updateScenario((s) => ({ ...s, furniture: [...s.furniture, ...items] })),
       updateFurniture: (id, patch) =>
         get().updateScenario((s) => ({
@@ -462,3 +468,14 @@ if (import.meta.hot) {
     data.state = Object.fromEntries(keep.map((k) => [k, s[k]]))
   })
 }
+
+// The project's own furniture types must be known to getCatalogItem everywhere (2D, 3D, checks).
+// zustand calls subscribers synchronously on every change, before React renders.
+let lastCustom: unknown = null
+useStore.subscribe((state) => {
+  const items = state.project?.customFurniture ?? []
+  if (items !== lastCustom) {
+    lastCustom = items
+    setCustomCatalog(items)
+  }
+})

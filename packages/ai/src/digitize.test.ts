@@ -14,6 +14,7 @@ const project = (calibrated: boolean, pxPerMeter = 100): Project => ({
   scenarios: [sc],
   activeScenarioId: sc.id,
   chat: [],
+  customFurniture: [],
   version: 0,
   createdAt: '',
   updatedAt: '',
