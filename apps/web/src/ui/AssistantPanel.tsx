@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { newId, type ChatMessage, type Note } from '@romslig/shared'
-import { api, askAssistant } from '../api.ts'
+import { runAssistant } from '@romslig/ai'
+import { newId, type AssistantEvent, type ChatMessage, type Note } from '@romslig/shared'
+import { useAi, useAiAvailable, withAi } from '../ai/client.ts'
 import { activeScenario, useStore } from '../store.ts'
 
 const SUGGESTIONS = [
@@ -25,16 +26,11 @@ export function AssistantPanel() {
   const [roomId, setRoomId] = useState<string | null>(selection?.kind === 'room' ? selection.id : null)
   const [input, setInput] = useState('')
   const [pending, setPending] = useState<Pending | null>(null)
-  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null)
+  const aiAvailable = useAiAvailable()
+  const aiMode = useAi((s) => s.config?.aiMode)
+  const openKeyDialog = useAi((s) => s.openKeyDialog)
   const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    api
-      .health()
-      .then((h) => setAiAvailable(h.ai))
-      .catch(() => setAiAvailable(false))
-  }, [])
 
   // Keep the newest message in view
   useEffect(() => {
@@ -46,7 +42,13 @@ export function AssistantPanel() {
 
   const send = async (text: string) => {
     const message = text.trim()
-    if (!message || pending) return
+    if (!message || pending || !aiMode) return
+    // byok without a key: ask for it first and keep the question in the input
+    if (!aiAvailable) {
+      openKeyDialog()
+      setInput(message)
+      return
+    }
     const question: ChatMessage = {
       id: newId('m_'),
       role: 'user',
@@ -60,31 +62,40 @@ export function AssistantPanel() {
     abortRef.current = abort
     setInput('')
     setPending({ question, text: '', activity: [], thinking: '', error: null })
-    try {
-      for await (const ev of askAssistant(project, roomId, message, abort.signal)) {
-        if (ev.type === 'text') setPending((p) => p && { ...p, text: p.text + ev.delta })
-        else if (ev.type === 'thinking') setPending((p) => p && { ...p, thinking: p.thinking + ev.delta })
-        else if (ev.type === 'activity')
-          setPending((p) => p && { ...p, activity: [...p.activity, { id: newId('a_'), text: ev.text }] })
-        else if (ev.type === 'error') setPending((p) => p && { ...p, error: ev.message })
-        else if (ev.type === 'done') {
-          useStore.getState().applyAssistantResult({
-            question,
-            answer: {
-              id: newId('m_'),
-              role: 'assistant',
-              text: ev.text,
-              createdAt: new Date().toISOString(),
-              roomId,
-              scenarioIds: ev.scenarios.map((s) => s.id),
-            },
-            scenarios: ev.scenarios,
-            notes: ev.notes,
-            baseScenarioId,
-          })
-          setPending(null)
-        }
+    const onEvent = (ev: AssistantEvent) => {
+      if (abort.signal.aborted) return
+      if (ev.type === 'text') setPending((p) => p && { ...p, text: p.text + ev.delta })
+      else if (ev.type === 'thinking') setPending((p) => p && { ...p, thinking: p.thinking + ev.delta })
+      else if (ev.type === 'activity')
+        setPending((p) => p && { ...p, activity: [...p.activity, { id: newId('a_'), text: ev.text }] })
+      else if (ev.type === 'error') setPending((p) => p && { ...p, error: ev.message })
+      else {
+        useStore.getState().applyAssistantResult({
+          question,
+          answer: {
+            id: newId('m_'),
+            role: 'assistant',
+            text: ev.text,
+            createdAt: new Date().toISOString(),
+            roomId,
+            scenarioIds: ev.scenarios.map((s) => s.id),
+          },
+          scenarios: ev.scenarios,
+          notes: ev.notes,
+          baseScenarioId,
+        })
+        setPending(null)
       }
+    }
+    try {
+      // Runs in the browser: straight to Anthropic (byok) or through our proxy (server). The
+      // request carries the current project, so the assistant sees unsaved edits too.
+      const ran = await withAi((client) => runAssistant(client, { project, roomId, message }, onEvent, abort.signal))
+      if (ran === null) {
+        // No key after all: the key dialog is open
+        setPending(null)
+        setInput(message)
+      } else if (abort.signal.aborted) setPending(null)
     } catch (e) {
       if (!abort.signal.aborted) setPending((p) => p && { ...p, error: (e as Error).message })
       else setPending(null)
@@ -111,7 +122,12 @@ export function AssistantPanel() {
 
       <div className="assistant-messages" ref={listRef}>
         {aiAvailable === false && (
-          <p className="note">AI er ikke tilgjengelig: legg ANTHROPIC_API_KEY i .env og start serveren på nytt.</p>
+          <p className="note">
+            Assistenten bruker din egen Anthropic-nøkkel.{' '}
+            <button className="link" onClick={openKeyDialog}>
+              Legg inn nøkkel
+            </button>
+          </p>
         )}
         {project.chat.length === 0 && !pending && (
           <div className="assistant-empty">
@@ -120,7 +136,7 @@ export function AssistantPanel() {
               originalen din aldri endres.
             </p>
             {SUGGESTIONS.map((s) => (
-              <button key={s} className="suggestion-chip" onClick={() => void send(s)} disabled={!aiAvailable}>
+              <button key={s} className="suggestion-chip" onClick={() => void send(s)} disabled={!aiMode}>
                 {s}
               </button>
             ))}
@@ -145,6 +161,11 @@ export function AssistantPanel() {
               {pending.error && (
                 <p className="error">
                   {pending.error}{' '}
+                  {aiMode === 'byok' && (
+                    <button className="link" onClick={openKeyDialog}>
+                      Endre nøkkel
+                    </button>
+                  )}{' '}
                   <button className="link" onClick={() => setPending(null)}>
                     Lukk
                   </button>
@@ -166,9 +187,11 @@ export function AssistantPanel() {
           value={input}
           rows={3}
           placeholder={
-            aiAvailable === false ? 'AI er ikke satt opp' : 'Spør assistenten… (Enter sender, Shift+Enter ny linje)'
+            aiAvailable === false
+              ? 'Legg inn Anthropic-nøkkelen (🔑 Nøkkel) for å spørre assistenten'
+              : 'Spør assistenten… (Enter sender, Shift+Enter ny linje)'
           }
-          disabled={!aiAvailable}
+          disabled={!aiMode}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -182,7 +205,7 @@ export function AssistantPanel() {
             Avbryt
           </button>
         ) : (
-          <button className="primary" disabled={!input.trim() || !aiAvailable}>
+          <button className="primary" disabled={!input.trim() || !aiMode}>
             Send
           </button>
         )}

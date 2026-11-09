@@ -6,10 +6,19 @@ Romslig er en lokal web-app for å planlegge renovering: plantegning (JPG/PNG) �
 
 ```
 npm install
-cp .env.example .env      # legg inn ANTHROPIC_API_KEY for AI-digitalisering
+cp .env.example .env      # valgfritt, se «AI» under
 npm run dev               # web: http://localhost:5173  API: http://localhost:8787
 npm test
 ```
+
+### AI
+
+AI-funksjonene (digitalisering, bildegjenkjenning og assistenten) kjører i nettleseren, fra `packages/ai`.
+
+- **`byok` (standard):** du limer inn din egen Anthropic-nøkkel i appen («🔑 Nøkkel» i toppmenyen). Den lagres bare i fanen (`sessionStorage`), går direkte fra nettleseren til Anthropic og når aldri serveren. Serveren trenger ingen nøkkel.
+- **`server`:** én nøkkel på serveren for alle. Sett `AI_MODE=server` og `ANTHROPIC_API_KEY=...` i `.env`. Nettleseren går da via proxyen `/api/ai/v1/messages`, som legger på nøkkelen.
+
+Se [deploy/README.md](deploy/README.md) for `AI_GROUP` og grensene i proxyen.
 
 ## Arbeidsflyt
 
@@ -30,8 +39,9 @@ Snarveier: Ctrl+Z / Ctrl+Y, Delete, Esc, Shift = fri vinkel ved tegning, dobbelt
 ## Struktur
 
 - `packages/shared`: datamodell (zod) og geometri (romdeteksjon, snapping, veggsegmenter)
-- `apps/server`: Hono-API, lagring i `data/projects/<id>/`, AI-digitalisering (`src/ai/digitize.ts`)
-- `apps/web`: React + Konva (2D) + react-three-fiber (3D)
+- `packages/ai`: AI-logikken (assistent, digitalisering, bildegjenkjenning), uten Node-avhengigheter. Hver funksjon får en Anthropic-klient inn
+- `apps/server`: Hono-API, lagring i filer (`data/projects/<id>/`) eller PostgreSQL, `/api/config` og AI-proxyen for `server`-modus (`src/ai/proxy.ts`)
+- `apps/web`: React + Konva (2D) + react-three-fiber (3D), og AI-klienten (`src/ai/client.ts`)
 
 ## Bygg og deploy
 

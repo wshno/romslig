@@ -1,5 +1,5 @@
+import type Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
-import sharp from 'sharp'
 import {
   DEFAULTS,
   ROOM_TYPES,
@@ -17,8 +17,7 @@ import {
   type Room,
   type Wall,
 } from '@romslig/shared'
-import { HttpError } from '../errors.ts'
-import { MODEL, anthropic, explainApiError } from './client.ts'
+import { AiError, MODEL, explainAiError, messageText } from './client.ts'
 
 /** What Claude returns, in pixel coordinates of the image it was shown. */
 const DigitizeOutput = z.object({
@@ -63,7 +62,8 @@ const DigitizeOutput = z.object({
 })
 type DigitizeOutput = z.infer<typeof DigitizeOutput>
 
-const MAX_EDGE = 1568
+/** Long edge (px) the plan is downscaled to before it is sent to Claude. */
+export const DIGITIZE_MAX_EDGE = 1568
 
 const OPENING_NAMES = { door: 'dør', window: 'vindu', opening: 'åpning' } as const
 
@@ -79,48 +79,69 @@ Regler:
 - Ikke ta med møbler, sanitærutstyr, tekst eller skravur som vegger.
 - notes: kort på norsk om usikkerhet (f.eks. utydelige vegger, mulig bærevegg-markering).`
 
-export async function digitizeProject(project: Project, original: Uint8Array): Promise<DigitizeSuggestion> {
-  if (!project.planImage) throw new HttpError(400, 'Prosjektet har ingen plantegning')
-  const { width: W, height: H } = project.planImage
-  const f = Math.min(1, MAX_EDGE / Math.max(W, H)) // scaled = original * f
-  const img = await sharp(original)
-    .resize(Math.round(W * f), Math.round(H * f))
-    .png()
-    .toBuffer()
+/** The plan image as sent to Claude: already downscaled by the caller (long edge ≤ DIGITIZE_MAX_EDGE). */
+export interface PlanImageInput {
+  mediaType: 'image/png' | 'image/jpeg' | 'image/webp'
+  /** Base64 without a data: prefix. */
+  data: string
+  width: number
+  height: number
+}
+
+export interface DigitizeRequest {
+  project: Project
+  image: PlanImageInput
+  /** Downscale factor: image pixels = original plan pixels × scale (≤ 1). */
+  scale: number
+}
+
+/** The scale factor for downscaling an original plan of this size before digitizing. */
+export const digitizeScale = (width: number, height: number) => Math.min(1, DIGITIZE_MAX_EDGE / Math.max(width, height))
+
+/** Asks Claude for the plan's geometry and converts it to a suggestion in meters. Errors are AiError. */
+export async function digitizePlan(
+  client: Anthropic,
+  { project, image, scale: f }: DigitizeRequest,
+  signal?: AbortSignal,
+): Promise<DigitizeSuggestion> {
+  if (!project.planImage) throw new AiError('Prosjektet har ingen plantegning.', 'invalid')
+  if (!(f > 0 && f <= 1)) throw new AiError('Ugyldig skalering av plantegningen.', 'invalid')
 
   let output: DigitizeOutput
   try {
-    const stream = anthropic().beta.messages.stream({
-      model: MODEL,
-      max_tokens: 64000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'high', format: { type: 'json_schema', schema: z.toJSONSchema(DigitizeOutput) } },
-      system: SYSTEM,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: img.toString('base64') } },
-            {
-              type: 'text',
-              text: `Bildet er ${Math.round(W * f)}×${Math.round(H * f)} piksler. Digitaliser plantegningen.`,
-            },
-          ],
-        },
-      ],
-    })
+    const stream = client.beta.messages.stream(
+      {
+        model: MODEL,
+        max_tokens: 64000,
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+        thinking: { type: 'adaptive' },
+        output_config: { effort: 'high', format: { type: 'json_schema', schema: z.toJSONSchema(DigitizeOutput) } },
+        system: SYSTEM,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } },
+              {
+                type: 'text',
+                text: `Bildet er ${image.width}×${image.height} piksler. Digitaliser plantegningen.`,
+              },
+            ],
+          },
+        ],
+      },
+      { signal },
+    )
     const msg = await stream.finalMessage()
-    if (msg.stop_reason === 'refusal') throw new HttpError(502, 'Claude avslo forespørselen. Prøv et annet bilde.')
+    if (msg.stop_reason === 'refusal') throw new AiError('Claude avslo forespørselen. Prøv et annet bilde.', 'refusal')
     if (msg.stop_reason === 'max_tokens')
-      throw new HttpError(502, 'Svaret fra Claude ble avkuttet (for stor tegning?).')
-    const text = msg.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('')
-    const parsed = DigitizeOutput.safeParse(JSON.parse(text))
-    if (!parsed.success) throw new HttpError(502, 'Claude returnerte ugyldig geometri: ' + parsed.error.message)
+      throw new AiError('Svaret fra Claude ble avkuttet (for stor tegning?).', 'truncated')
+    const parsed = DigitizeOutput.safeParse(JSON.parse(messageText(msg)))
+    if (!parsed.success) throw new AiError('Claude returnerte ugyldig geometri: ' + parsed.error.message, 'invalid')
     output = parsed.data
   } catch (e) {
-    throw explainApiError(e)
+    throw explainAiError(e)
   }
 
   return toSuggestion(output, project, f)

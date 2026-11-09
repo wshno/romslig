@@ -5,6 +5,8 @@ import { Viewer3D } from '../viewer3d/Viewer3D.tsx'
 import { activeScenario, redo, undo, useStore, type Tool, type ViewMode } from '../store.ts'
 import { Inspector } from './Inspector.tsx'
 import { CompareView } from './CompareView.tsx'
+import { ApiKeyButton, ApiKeyDialog } from './ApiKeyDialog.tsx'
+import { loadConfig, useAi } from '../ai/client.ts'
 import {
   FIXTURE_INFO,
   FIXTURE_KINDS,
@@ -43,6 +45,12 @@ export function Editor({ projectId }: { projectId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [save, setSave] = useState<SaveState>('saved')
   const inspectorWide = useStore((s) => s.inspectorTab === 'assistent' && !s.selection)
+  const keyDialogOpen = useAi((s) => s.keyDialogOpen)
+
+  // AI mode (byok or server) for the key button and the AI panels
+  useEffect(() => {
+    loadConfig().catch((e: unknown) => console.warn('config:', e))
+  }, [])
 
   const [conflict, setConflict] = useState(false)
   /** Server version the next save must match (If-Match). */
@@ -198,6 +206,7 @@ export function Editor({ projectId }: { projectId: string }) {
           </div>
         </div>
       )}
+      {keyDialogOpen && <ApiKeyDialog />}
       {error && (
         <div className="toast error" onClick={() => setError(null)}>
           {error}
@@ -289,6 +298,7 @@ function TopBar({ save }: { save: SaveState }) {
           </button>
         ))}
       </div>
+      <ApiKeyButton />
       <span className={`save-state ${save}`}>{SAVE_LABELS[save]}</span>
     </header>
   )

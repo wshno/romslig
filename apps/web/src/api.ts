@@ -1,11 +1,5 @@
-import type {
-  AssistantEvent,
-  DigitizeSuggestion,
-  PlanSide,
-  Project,
-  ProjectSummary,
-  RecognizeResult,
-} from '@romslig/shared'
+import { digitizeScale, type PlanImageInput } from '@romslig/ai'
+import type { Project, ProjectSummary } from '@romslig/shared'
 
 /** An error response from our API, with its HTTP status (e.g. 409 when another device saved first). */
 export class ApiError extends Error {
@@ -53,7 +47,7 @@ export async function preparePlanPng(file: File, maxEdge = 6000): Promise<File> 
 }
 
 export const api = {
-  health: () => req<{ ok: boolean; ai: boolean }>('/api/health'),
+  health: () => req<{ ok: boolean }>('/api/health'),
   list: () => req<ProjectSummary[]>('/api/projects'),
   get: (id: string) => req<Project>(`/api/projects/${id}`),
   create: async (name: string, image: File | null) => {
@@ -71,51 +65,35 @@ export const api = {
     }),
   remove: (id: string) => req<void>(`/api/projects/${id}`, { method: 'DELETE' }),
   planUrl: (id: string) => `/api/projects/${id}/plan`,
-  digitize: (id: string) => req<DigitizeSuggestion>(`/api/projects/${id}/digitize`, { method: 'POST' }),
 }
 
 /**
- * Asks the assistant and yields its server-sent events as they arrive. The request carries the
- * current project, so the assistant sees unsaved edits too.
+ * Loads the project's floor plan and downscales it in the browser for digitizing (long edge
+ * ≤ 1568 px, PNG, base64). `scale` maps original plan pixels to the image Claude sees.
  */
-export async function* askAssistant(
-  project: Project,
-  roomId: string | null,
-  message: string,
-  signal: AbortSignal,
-): AsyncGenerator<AssistantEvent> {
-  const res = await fetch(`/api/projects/${project.id}/assistant`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project, roomId, message }),
-    signal,
-  })
-  if (!res.ok || !res.body) {
-    let msg = `${res.status} ${res.statusText}`
-    try {
-      msg = (await res.json()).error ?? msg
-    } catch {
-      /* not JSON */
-    }
-    throw new Error(msg)
-  }
-  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
-  let buffer = ''
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += value
-    let end: number
-    while ((end = buffer.indexOf('\n\n')) >= 0) {
-      const chunk = buffer.slice(0, end)
-      buffer = buffer.slice(end + 2)
-      const data = chunk
-        .split('\n')
-        .filter((l) => l.startsWith('data:'))
-        .map((l) => l.slice(5).trimStart())
-        .join('\n')
-      if (data) yield JSON.parse(data) as AssistantEvent
-    }
+export async function preparePlanForAi(project: Project): Promise<{ image: PlanImageInput; scale: number }> {
+  if (!project.planImage) throw new Error('Prosjektet har ingen plantegning.')
+  const res = await fetch(api.planUrl(project.id))
+  if (!res.ok) throw new ApiError(res.status, 'Kunne ikke hente plantegningen.')
+  const bitmap = await createImageBitmap(await res.blob())
+  const { width: W, height: H } = project.planImage
+  const scale = digitizeScale(W, H)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(W * scale)
+  canvas.height = Math.round(H * scale)
+  const ctx = canvas.getContext('2d')!
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  const dataUrl = canvas.toDataURL('image/png')
+  return {
+    image: {
+      mediaType: 'image/png',
+      data: dataUrl.slice(dataUrl.indexOf(',') + 1),
+      width: canvas.width,
+      height: canvas.height,
+    },
+    scale,
   }
 }
 
@@ -131,15 +109,3 @@ export async function prepareImage(file: File): Promise<{ mediaType: 'image/jpeg
   const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
   return { mediaType: 'image/jpeg', data: dataUrl.slice(dataUrl.indexOf(',') + 1) }
 }
-
-export const recognize = (
-  project: Project,
-  roomId: string,
-  hint: string,
-  images: { mediaType: 'image/jpeg'; data: string; facing: PlanSide | null }[],
-) =>
-  req<RecognizeResult>(`/api/projects/${project.id}/recognize`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project, roomId, hint, images }),
-  })

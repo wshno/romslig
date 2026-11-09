@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { emptyScenario, polygonArea, type Project } from '@romslig/shared'
-import { toSuggestion } from './digitize.ts'
+import { digitizePlan, digitizeScale, toSuggestion } from './digitize.ts'
+import { fakeClient } from './testing.ts'
 
 const sc = emptyScenario()
 const project = (calibrated: boolean, pxPerMeter = 100): Project => ({
@@ -82,5 +83,46 @@ describe('toSuggestion', () => {
     expect(s.scaleSource).toBe('areas')
     const sov2 = s.rooms.find((r) => r.name === 'Sov 2')!
     expect(polygonArea(sov2.polygon)).toBeCloseTo(12.4, 0)
+  })
+})
+
+describe('digitizePlan', () => {
+  const halve = <T extends { x1: number; y1: number; x2: number; y2: number }>(l: T): T => ({
+    ...l,
+    x1: l.x1 / 2,
+    y1: l.y1 / 2,
+    x2: l.x2 / 2,
+    y2: l.y2 / 2,
+  })
+
+  it('sends the downscaled image and converts the answer with the given scale', async () => {
+    const half = {
+      ...out,
+      walls: out.walls.map(halve),
+      rooms: out.rooms.map((r) => ({ ...r, label_x: r.label_x / 2, label_y: r.label_y / 2 })),
+      openings: [],
+      dimensions: out.dimensions.map(halve),
+    }
+    const { client, requests } = fakeClient([{ content: [{ type: 'text', text: JSON.stringify(half) }] }])
+    const image = { mediaType: 'image/png' as const, data: 'iVBORw0KGgo=', width: 560, height: 430 }
+    const s = await digitizePlan(client, { project: project(false, 50), image, scale: 0.5 })
+    expect(s.scaleSource).toBe('dimensions')
+    expect(s.pxPerMeter).toBeCloseTo(100, 0)
+    expect(s.rooms).toHaveLength(3)
+    const messages = requests[0]!.body.messages as { content: { type: string; text?: string }[] }[]
+    const content = messages[0]!.content
+    expect(content[0]).toMatchObject({ type: 'image', source: { media_type: 'image/png', data: 'iVBORw0KGgo=' } })
+    expect(content[1]!.text).toContain('560×430')
+  })
+
+  it('reports a refusal in Norwegian', async () => {
+    const { client } = fakeClient([{ content: [{ type: 'text', text: '' }], stop_reason: 'refusal' }])
+    const image = { mediaType: 'image/png' as const, data: 'x', width: 10, height: 10 }
+    await expect(digitizePlan(client, { project: project(true), image, scale: 1 })).rejects.toThrow(/avslo/)
+  })
+
+  it('caps the long edge', () => {
+    expect(digitizeScale(3136, 1000)).toBe(0.5)
+    expect(digitizeScale(800, 600)).toBe(1)
   })
 })

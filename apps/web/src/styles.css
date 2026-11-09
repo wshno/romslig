@@ -873,3 +873,26 @@ select {
 .save-state.conflict {
   color: var(--danger);
 }
+
+/* Anthropic key (byok) */
+.api-key-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-width: none;
+}
+.api-key-facts {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.api-key-form {
+  display: flex;
+  gap: 8px;
+}
+.api-key-form input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, monospace;
+}
+.api-key-button.set {
+  color: var(--ok);
+}

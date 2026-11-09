@@ -70,6 +70,13 @@ spec:
               value: '${AI_MODE:=byok}'
             - name: AI_GROUP
               value: '${AI_GROUP:=}'
+            # Limits of the server-mode proxy (/api/ai/v1/messages); unused in byok.
+            - name: AI_MODELS
+              value: '${AI_MODELS:=claude-opus-5-5}'
+            - name: AI_MAX_TOKENS
+              value: '${AI_MAX_TOKENS:=64000}'
+            - name: AI_RATE_PER_MIN
+              value: '${AI_RATE_PER_MIN:=20}'
             # Optional, so byok runs without the Secret. The default name is never empty because an
             # empty secretKeyRef name fails Pod validation even when optional.
             - name: ANTHROPIC_API_KEY

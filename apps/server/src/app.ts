@@ -1,18 +1,26 @@
 import { Hono } from 'hono'
-import { streamSSE } from 'hono/streaming'
 import { Project, emptyScenario, newId } from '@romslig/shared'
 import { auth, type AuthOptions, type User } from './auth.ts'
 import { HttpError } from './errors.ts'
 import { MAX_PLAN_BYTES, readPngSize } from './png.ts'
 import type { ProjectStore } from './storage/index.ts'
-import { digitizeProject } from './ai/digitize.ts'
-import { AssistantRequest, runAssistant } from './ai/assistant.ts'
-import { RecognizeRequest, recognizeFurniture } from './ai/recognize.ts'
+import { aiConfigFromEnv, aiModeFor, type AiConfig } from './ai/config.ts'
+import { aiProxy } from './ai/proxy.ts'
 
 type Env = { Variables: { user: User } }
 
-/** The HTTP API. Everything except /health requires a user (see auth.ts). */
-export function createApp(store: ProjectStore, authOpts: AuthOptions) {
+export interface AppOptions {
+  ai?: AiConfig
+  /** Used by the AI proxy to reach Anthropic (tests inject a fake). */
+  fetch?: typeof fetch
+}
+
+/**
+ * The HTTP API. Everything except /health requires a user (see auth.ts). The AI features run in
+ * the browser; the API only tells it which mode to use and, in server mode, proxies its calls.
+ */
+export function createApp(store: ProjectStore, authOpts: AuthOptions, opts: AppOptions = {}) {
+  const ai = opts.ai ?? aiConfigFromEnv({})
   const app = new Hono<Env>().basePath('/api')
 
   app.onError((err, c) => {
@@ -22,14 +30,20 @@ export function createApp(store: ProjectStore, authOpts: AuthOptions) {
   })
 
   // Unauthenticated: used by Kubernetes probes
-  app.get('/health', (c) =>
-    c.json({ ok: true, ai: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) }),
-  )
+  app.get('/health', (c) => c.json({ ok: true }))
 
   app.use('*', auth(authOpts))
   const owner = (c: { get(key: 'user'): User }) => c.get('user').id
 
   app.get('/me', (c) => c.json(c.get('user')))
+
+  /** What the browser needs to start: the user's AI mode (never the key) and who they are. */
+  app.get('/config', (c) => {
+    const user = c.get('user')
+    return c.json({ aiMode: aiModeFor(ai, user), user })
+  })
+
+  app.route('/ai', aiProxy(ai, opts.fetch))
 
   app.get('/projects', async (c) => c.json(await store.list(owner(c))))
 
@@ -88,39 +102,6 @@ export function createApp(store: ProjectStore, authOpts: AuthOptions) {
     return c.body(png as Uint8Array<ArrayBuffer>, 200, {
       'Content-Type': 'image/png',
       'Cache-Control': 'private, no-cache',
-    })
-  })
-
-  app.post('/projects/:id/digitize', async (c) => {
-    const id = c.req.param('id')
-    const project = await store.get(owner(c), id)
-    return c.json(await digitizeProject(project, await store.getPlan(owner(c), id)))
-  })
-
-  app.post('/projects/:id/recognize', async (c) => {
-    const parsed = RecognizeRequest.safeParse(await c.req.json())
-    if (!parsed.success) throw new HttpError(422, 'Ugyldig forespørsel: ' + parsed.error.message)
-    if (parsed.data.project.id !== c.req.param('id')) throw new HttpError(400, 'Id stemmer ikke')
-    return c.json(await recognizeFurniture(parsed.data))
-  })
-
-  app.post('/projects/:id/assistant', async (c) => {
-    const parsed = AssistantRequest.safeParse(await c.req.json())
-    if (!parsed.success) throw new HttpError(422, 'Ugyldig forespørsel: ' + parsed.error.message)
-    if (parsed.data.project.id !== c.req.param('id')) throw new HttpError(400, 'Id stemmer ikke')
-    return streamSSE(c, async (stream) => {
-      const abort = new AbortController()
-      stream.onAbort(() => abort.abort())
-      // Events are written in order; the stream stays open until the assistant is done
-      let queue = Promise.resolve()
-      await runAssistant(
-        parsed.data,
-        (event) => {
-          queue = queue.then(() => stream.writeSSE({ data: JSON.stringify(event) }))
-        },
-        abort.signal,
-      )
-      await queue
     })
   })
 

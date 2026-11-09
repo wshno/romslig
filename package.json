@@ -9,9 +9,9 @@
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
     "build": "npm run build -w apps/web && npm run build -w apps/server",
-    "test": "npm test -w packages/shared && npm test -w apps/server",
+    "test": "npm test -w packages/shared && npm test -w packages/ai && npm test -w apps/server",
     "coverage:ci": "vitest run --coverage",
-    "typecheck": "tsc -p packages/shared && tsc -p apps/server && tsc -p apps/web",
+    "typecheck": "tsc -p packages/shared && tsc -p packages/ai && tsc -p apps/server && tsc -p apps/web",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "lint:ci": "eslint . --report-unused-disable-directives --format json",
     "lint:fix": "eslint . --fix",

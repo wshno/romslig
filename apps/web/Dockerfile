@@ -8,6 +8,7 @@ FROM node:26-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
+COPY packages/ai/package.json packages/ai/
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund

@@ -10,7 +10,9 @@ import {
   type PlanSide,
   type Room,
 } from '@romslig/shared'
-import { prepareImage, recognize } from '../api.ts'
+import { recognizeFurniture } from '@romslig/ai'
+import { prepareImage } from '../api.ts'
+import { withAi } from '../ai/client.ts'
 import { DirectionPicker } from './DirectionPicker.tsx'
 import { activeScenario, useStore } from '../store.ts'
 
@@ -77,7 +79,8 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
       const images = await Promise.all(
         files.map(async (file, i) => ({ ...(await prepareImage(file)), facing: facing[i] ?? null })),
       )
-      const r = await recognize(project, room.id, hint, images)
+      const r = await withAi((client) => recognizeFurniture(client, { project, roomId: room.id, hint, images }))
+      if (!r) return // no key yet: the key dialog is open
       setResult(r)
       setChosen(new Set(r.items.map((_, i) => i).filter((i) => r.items[i]!.confidence !== 'low')))
     } catch (e) {

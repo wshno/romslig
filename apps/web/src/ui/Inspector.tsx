@@ -11,7 +11,9 @@ import {
   type RoomType,
   type Wall,
 } from '@romslig/shared'
-import { api } from '../api.ts'
+import { digitizePlan } from '@romslig/ai'
+import { preparePlanForAi } from '../api.ts'
+import { withAi } from '../ai/client.ts'
 import { activeScenario, useStore } from '../store.ts'
 import { ROOM_COLORS, ROOM_LABELS, fmtM, fmtM2 } from '../theme.ts'
 import { FurnitureCatalog, FurnitureList, FurnitureProps } from './FurniturePanel.tsx'
@@ -419,7 +421,10 @@ function DigitizePanel() {
           setBusy(true)
           setError(null)
           try {
-            setSuggestion(await api.digitize(project.id))
+            const suggestion = await withAi(async (client) =>
+              digitizePlan(client, { project, ...(await preparePlanForAi(project)) }),
+            )
+            if (suggestion) setSuggestion(suggestion) // null: no key yet, the key dialog is open
           } catch (e) {
             setError((e as Error).message)
           } finally {
