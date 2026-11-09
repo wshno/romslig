@@ -160,3 +160,42 @@ describe('findFreeSpot', () => {
     expect(findFreeSpot(scene([]), 'seng-180', tiny)).toBeNull()
   })
 })
+
+describe('findFreeSpot options', () => {
+  it('puts an item against the preferred wall', () => {
+    const spot = findFreeSpot(scene([]), 'kommode', room, { preferSide: 'bottom' })!
+    expect(spot.y).toBeGreaterThan(2.5) // against the bottom wall, facing up
+    expect(frontDir(spot.rotation).y).toBeCloseTo(-1)
+  })
+  it('uses a size override', () => {
+    const spot = findFreeSpot(scene([]), 'sofa-3', room, { size: { w: 3.5, d: 1, h: 0.8 }, preferSide: 'top' })!
+    expect(spot.x).toBeCloseTo(2, 0) // only fits along the 3.9 m wall, centred
+  })
+})
+
+describe('chairs at tables', () => {
+  it('lets a chair be pushed in under a desk, but not into a wardrobe', () => {
+    const issues = furnitureIssues(
+      scene([
+        item('desk', 'skrivebord', 2, 0.4),
+        item('chair', 'kontorstol', 2, 0.8, 180),
+        item('g', 'garderobe-100', 3.4, 2.6, 180),
+        item('c2', 'spisestol', 3.4, 2.2),
+      ]),
+    )
+    expect(issues.get('desk')).toBeUndefined()
+    expect(issues.get('chair')).toBeUndefined()
+    expect(issues.get('c2')).toContainEqual({ kind: 'overlap', otherId: 'g' })
+  })
+})
+
+describe('findFreeSpot for chairs', () => {
+  it('puts a chair at the desk, facing it', () => {
+    const desk = item('desk', 'skrivebord', 2, 0.4) // against the top wall, front faces +y
+    const spot = findFreeSpot(scene([{ ...desk, roomId: 'r' }]), 'kontorstol', room)!
+    expect(spot.x).toBeCloseTo(1.65, 1) // first seat on a wide desk
+    expect(spot.y).toBeGreaterThan(0.7)
+    expect(spot.y).toBeLessThan(1.2)
+    expect(frontDir(spot.rotation).y).toBeCloseTo(-1) // faces the desk
+  })
+})

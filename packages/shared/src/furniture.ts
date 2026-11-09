@@ -132,6 +132,9 @@ function zRange(item: FurnitureItem, cat: CatalogItem): [number, number] {
   return [z0, z0 + itemSize(item, cat).h]
 }
 const zOverlap = (a: [number, number], b: [number, number]) => Math.min(a[1], b[1]) - Math.max(a[0], b[0]) > 0.01
+/** A chair may be pushed in under a table or desk. */
+const tucksUnder = (chair: CatalogItem, table: CatalogItem) => chair.shape === 'chair' && table.shape === 'table'
+
 /** Things at least this high off the floor don't block walking space. */
 const ABOVE_WALKING = 1.2
 
@@ -196,6 +199,7 @@ export function furnitureIssues(scenario: Pick<Scenario, 'furniture' | 'walls' |
     if (solid) {
       for (const b of items) {
         if (b === a || b.cat.collides === false || !zOverlap(a.z, b.z)) continue
+        if (tucksUnder(a.cat, b.cat) || tucksUnder(b.cat, a.cat)) continue
         if (polygonsOverlap(a.poly, b.poly)) issues.push({ kind: 'overlap', otherId: b.f.id })
       }
       for (const { w, poly } of walls) {
@@ -237,20 +241,71 @@ const FREE_STANDING = new Set(['table', 'rug', 'chair'])
 type Placement = { x: number; y: number; rotation: number }
 
 /** Candidate spots along the inside of the room's walls, backs against the wall, facing in. */
-function wallCandidates(poly: Vec2[], size: Size): Placement[] {
+/** Which side of the plan a room edge is on, judged by the direction it faces into the room. */
+export type PlanSide = 'top' | 'right' | 'bottom' | 'left'
+
+function sideOf(inward: Vec2): PlanSide | null {
+  if (inward.y > 0.7) return 'top'
+  if (inward.y < -0.7) return 'bottom'
+  if (inward.x > 0.7) return 'left'
+  if (inward.x < -0.7) return 'right'
+  return null
+}
+
+/** The room's edges (inside faces of its walls) with their plan side and inward normal. */
+export function roomEdges(poly: Vec2[]): { a: Vec2; b: Vec2; length: number; inward: Vec2; side: PlanSide | null }[] {
   const ccw = signedArea(poly) > 0
-  const out: Placement[] = []
-  for (let i = 0; i < poly.length; i++) {
-    const a = poly[i]!
+  return poly.map((a, i) => {
     const b = poly[(i + 1) % poly.length]!
-    const L = dist(a, b)
+    const dir = norm(sub(b, a))
+    const inward = ccw ? v(-dir.y, dir.x) : v(dir.y, -dir.x)
+    return { a, b, length: dist(a, b), inward, side: sideOf(inward) }
+  })
+}
+
+function wallCandidates(poly: Vec2[], size: Size, preferSide?: PlanSide): Placement[] {
+  const edges = roomEdges(poly)
+  // Edges on the preferred side first, longest first within each group
+  const ordered = [...edges].sort(
+    (e1, e2) => Number(e2.side === preferSide) - Number(e1.side === preferSide) || e2.length - e1.length,
+  )
+  const out: Placement[] = []
+  for (const { a, b, length: L, inward: n } of ordered) {
     if (L < size.w + 0.02) continue
     const dir = norm(sub(b, a))
-    const n = ccw ? v(-dir.y, dir.x) : v(dir.y, -dir.x)
     const rotation = (Math.atan2(-n.x, n.y) * 180) / Math.PI
-    for (let t = size.w / 2 + 0.01; t <= L - size.w / 2 - 0.01; t += 0.1) {
+    // Middle of the wall first, then outwards
+    const ts: number[] = []
+    for (let t = size.w / 2 + 0.01; t <= L - size.w / 2 - 0.01; t += 0.1) ts.push(t)
+    ts.sort((t1, t2) => Math.abs(t1 - L / 2) - Math.abs(t2 - L / 2))
+    for (const t of ts) {
       const p = add(add(a, mul(dir, t)), mul(n, size.d / 2 + 0.003))
       out.push({ x: p.x, y: p.y, rotation })
+    }
+  }
+  return out
+}
+
+/**
+ * Seats at the tables and desks in a room: in front of and behind each (two per side on wide
+ * tables), pushed slightly in and facing the table.
+ */
+function tableCandidates(furniture: FurnitureItem[], roomId: string, chair: Size): Placement[] {
+  const out: Placement[] = []
+  for (const t of furniture) {
+    const tcat = getCatalogItem(t.catalogId)
+    if (t.roomId !== roomId || tcat.shape !== 'table' || tcat.allowInClearance) continue
+    const { w, d } = itemSize(t, tcat)
+    const along = w >= 1.2 ? [-w / 4, w / 4] : [0]
+    const out_ = d / 2 + chair.d / 2 - 0.15
+    for (const [ly, rot] of [
+      [out_, t.rotation + 180],
+      [-out_, t.rotation],
+    ] as const) {
+      for (const lx of along) {
+        const p = toWorld(t, v(lx, ly))
+        out.push({ x: p.x, y: p.y, rotation: ((rot % 360) + 360) % 360 })
+      }
     }
   }
   return out
@@ -279,18 +334,28 @@ export function findFreeSpot(
   scenario: Pick<Scenario, 'furniture' | 'walls' | 'openings' | 'rooms'>,
   catalogId: string,
   room: Room,
+  opts: { size?: Size | null; preferSide?: PlanSide; freeStanding?: boolean } = {},
 ): Placement | null {
   if (room.polygon.length < 3) return null
   const cat = getCatalogItem(catalogId)
-  const size = { w: cat.w, d: cat.d, h: cat.h }
-  const candidates = FREE_STANDING.has(cat.shape)
+  const size = opts.size ?? { w: cat.w, d: cat.d, h: cat.h }
+  const freeStanding = opts.freeStanding ?? FREE_STANDING.has(cat.shape)
+  const base = freeStanding
     ? floorCandidates(room.polygon)
-    : [...wallCandidates(room.polygon, size), ...floorCandidates(room.polygon)]
+    : [...wallCandidates(room.polygon, size, opts.preferSide), ...floorCandidates(room.polygon)]
+  const candidates = cat.shape === 'chair' ? [...tableCandidates(scenario.furniture, room.id, size), ...base] : base
   // The new item must not make things worse for what is already there either
   const before = furnitureIssues(scenario)
   const countOf = (m: Map<string, FurnitureIssue[]>, id: string) => m.get(id)?.length ?? 0
   for (const p of candidates) {
-    const probe: FurnitureItem = { id: '__probe__', catalogId, ...p, roomId: room.id, size: null, label: null }
+    const probe: FurnitureItem = {
+      id: '__probe__',
+      catalogId,
+      ...p,
+      roomId: room.id,
+      size: opts.size ?? null,
+      label: null,
+    }
     const after = furnitureIssues({ ...scenario, furniture: [...scenario.furniture, probe] })
     if (after.has(probe.id)) continue
     if (scenario.furniture.every((f) => countOf(after, f.id) <= countOf(before, f.id))) return p

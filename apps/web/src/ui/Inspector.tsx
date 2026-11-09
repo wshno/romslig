@@ -16,6 +16,7 @@ import { activeScenario, useStore } from '../store.ts'
 import { ROOM_COLORS, ROOM_LABELS, fmtM, fmtM2 } from '../theme.ts'
 import { FurnitureCatalog, FurnitureList, FurnitureProps } from './FurniturePanel.tsx'
 import { AssistantPanel, NotesList } from './AssistantPanel.tsx'
+import { RecognizePanel } from './RecognizePanel.tsx'
 
 export function Inspector() {
   const project = useStore((s) => s.project)!
@@ -183,6 +184,7 @@ function RoomProps({ room }: { room: Room }) {
   const update = (p: Partial<Room>) => useStore.getState().updateRoom(room.id, p)
   const area = polygonArea(room.polygon)
   const dev = areaDeviation(room)
+  const [recognizing, setRecognizing] = useState(false)
   return (
     <div className="props">
       <Header title="Rom" />
@@ -224,6 +226,11 @@ function RoomProps({ room }: { room: Room }) {
       )}
       <h4>Møbler i rommet</h4>
       <FurnitureList roomId={room.id} />
+      {recognizing ? (
+        <RecognizePanel room={room} onClose={() => setRecognizing(false)} />
+      ) : (
+        <button onClick={() => setRecognizing(true)}>📷 Gjenkjenn møbler fra bilder</button>
+      )}
       <NotesList roomId={room.id} />
       <button
         onClick={() => {

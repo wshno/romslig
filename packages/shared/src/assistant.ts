@@ -14,3 +14,24 @@ export type AssistantEvent =
    */
   | { type: 'done'; text: string; scenarios: Scenario[]; notes: Note[] }
   | { type: 'error'; message: string }
+
+/** One piece of furniture recognised in photos of a room. */
+export interface RecognizedItem {
+  catalogId: string
+  /** What the item actually is, e.g. "Grå 3-seter sofa". */
+  name: string
+  /** Estimated real size (m). */
+  size: { w: number; d: number; h: number }
+  /** Plan side of the wall it stands against, or free-standing. */
+  side: 'top' | 'right' | 'bottom' | 'left' | 'free'
+  positionHint: string
+  confidence: 'high' | 'medium' | 'low'
+  /** 1-based index of the photo it is most visible in. */
+  photo: number
+}
+
+export interface RecognizeResult {
+  roomId: string
+  items: RecognizedItem[]
+  notes: string
+}

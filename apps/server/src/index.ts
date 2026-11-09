@@ -7,6 +7,7 @@ import { Project, emptyScenario, newId } from '@romslig/shared'
 import { HttpError, deleteProject, listProjects, loadProject, projectDir, saveProject } from './storage.ts'
 import { digitizeProject } from './ai/digitize.ts'
 import { AssistantRequest, runAssistant } from './ai/assistant.ts'
+import { RecognizeRequest, recognizeFurniture } from './ai/recognize.ts'
 import { streamSSE } from 'hono/streaming'
 
 const app = new Hono().basePath('/api')
@@ -87,6 +88,13 @@ app.get('/projects/:id/plan', async (c) => {
 app.post('/projects/:id/digitize', async (c) => {
   const p = await loadProject(c.req.param('id'))
   return c.json(await digitizeProject(p))
+})
+
+app.post('/projects/:id/recognize', async (c) => {
+  const parsed = RecognizeRequest.safeParse(await c.req.json())
+  if (!parsed.success) throw new HttpError(422, 'Ugyldig forespørsel: ' + parsed.error.message)
+  if (parsed.data.project.id !== c.req.param('id')) throw new HttpError(400, 'Id stemmer ikke')
+  return c.json(await recognizeFurniture(parsed.data))
 })
 
 app.post('/projects/:id/assistant', async (c) => {

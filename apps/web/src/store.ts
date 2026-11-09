@@ -54,6 +54,8 @@ interface State {
   updateRoom(id: string, patch: Partial<Room>): void
   /** Places a catalog item; snaps it to a wall when dropped close to one. */
   addFurniture(catalogId: string, at: Vec2, opts?: { snap?: boolean; rotation?: number }): void
+  /** Adds several finished items in one undo step. */
+  addFurnitureItems(items: FurnitureItem[]): void
   updateFurniture(id: string, patch: Partial<FurnitureItem>): void
   /** Moves an item, snapping it back against a nearby wall unless snap is false. */
   moveFurniture(id: string, to: Vec2, snap: boolean): void
@@ -183,6 +185,7 @@ export const useStore = create<State>()(
         get().updateScenario((s) => ({ ...s, furniture: [...s.furniture, item] }))
         set({ selection: { kind: 'furniture', id: item.id } })
       },
+      addFurnitureItems: (items) => get().updateScenario((s) => ({ ...s, furniture: [...s.furniture, ...items] })),
       updateFurniture: (id, patch) =>
         get().updateScenario((s) => ({
           ...s,
@@ -352,3 +355,15 @@ export function endGesture() {
 }
 
 if (import.meta.env.DEV) (window as unknown as { __romslig: unknown }).__romslig = useStore
+
+// Keep the editor state when Vite hot-replaces this module (e.g. after an edit in packages/shared),
+// instead of falling back to an empty store that shows «Laster prosjekt…» until a reload.
+if (import.meta.hot) {
+  const keep = ['project', 'tool', 'view', 'selection', 'suggestion', 'wallThickness', 'inspectorTab'] as const
+  const prev = import.meta.hot.data.state as Partial<State> | undefined
+  if (prev) useStore.setState(prev)
+  import.meta.hot.dispose((data) => {
+    const s = useStore.getState()
+    data.state = Object.fromEntries(keep.map((k) => [k, s[k]]))
+  })
+}
