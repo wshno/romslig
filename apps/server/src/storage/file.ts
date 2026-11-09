@@ -115,6 +115,11 @@ export class FileStore implements ProjectStore {
     await rm(this.dir(owner, id), { recursive: true, force: true })
   }
 
+  async putPlan(owner: string, id: string, png: Uint8Array): Promise<void> {
+    await this.get(owner, id) // 404 if the project is missing or owned by someone else
+    await writeFile(path.join(this.dir(owner, id), 'plan.png'), png)
+  }
+
   async getPlan(owner: string, id: string): Promise<Uint8Array> {
     await this.get(owner, id) // 404 if the project is missing or owned by someone else
     try {

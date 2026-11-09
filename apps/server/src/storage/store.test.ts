@@ -47,6 +47,16 @@ function contract(name: string, open: () => Promise<ProjectStore>) {
       expect((await store.get('anna', p.id)).name).toBe('Endret')
     })
 
+    it('adds and replaces a plan image later, only for the owner', async () => {
+      const p = await store.create('anna', makeProject(), null)
+      await expect(store.getPlan('anna', p.id)).rejects.toMatchObject({ status: 404 })
+      await store.putPlan('anna', p.id, makePng(10, 8))
+      await store.putPlan('anna', p.id, makePng(20, 6))
+      expect(await store.getPlan('anna', p.id)).toHaveLength(makePng(20, 6).length)
+      await expect(store.putPlan('bjorn', p.id, makePng(1, 1))).rejects.toMatchObject({ status: 404 })
+      await expect(store.putPlan('anna', 'p_missing', makePng(1, 1))).rejects.toMatchObject({ status: 404 })
+    })
+
     it('deletes', async () => {
       const p = await store.create('anna', makeProject(), null)
       await store.delete('anna', p.id)

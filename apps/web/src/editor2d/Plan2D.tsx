@@ -107,7 +107,9 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   const interactive = !readOnly && tool === 'select'
   const { select, addWall, addOpening, addRoom, updateWall, updateOpening, calibrate, setTool } = useStore.getState()
 
-  const img = useHtmlImage(project.planImage ? `${api.planUrl(project.id)}?v=${project.createdAt}` : null)
+  const img = useHtmlImage(
+    project.planImage ? `${api.planUrl(project.id)}?v=${project.createdAt}-${project.planImage.file}` : null,
+  )
   const ppm = project.calibration.pxPerMeter
   const imgW = project.planImage ? project.planImage.width / ppm : 15
   const imgH = project.planImage ? project.planImage.height / ppm : 10

@@ -12,7 +12,7 @@ import {
   type Wall,
 } from '@romslig/shared'
 import { digitizePlan } from '@romslig/ai'
-import { preparePlanForAi } from '../api.ts'
+import { api, preparePlanForAi } from '../api.ts'
 import { withAi } from '../ai/client.ts'
 import { activeScenario, useStore } from '../store.ts'
 import { ROOM_COLORS, ROOM_LABELS, fmtM, fmtM2 } from '../theme.ts'
@@ -374,7 +374,13 @@ function DigitizePanel() {
   const [error, setError] = useState<string | null>(null)
   const hasGeometry = activeScenario(project).walls.length > 0
 
-  if (!project.planImage) return <p className="muted">Prosjektet har ingen plantegning.</p>
+  if (!project.planImage)
+    return (
+      <>
+        <p className="muted">Prosjektet har ingen plantegning ennå.</p>
+        <PlanUpload label="📄 Last opp plantegning" />
+      </>
+    )
 
   if (suggestion) {
     const src = {
@@ -435,6 +441,47 @@ function DigitizePanel() {
         {busy ? 'Claude analyserer tegningen…' : '✨ Digitaliser med AI'}
       </button>
       {busy && <p className="muted">Dette kan ta 1–3 minutter.</p>}
+      {error && <p className="error">{error}</p>}
+      <PlanUpload label="Bytt plantegning" small />
+    </>
+  )
+}
+
+/** Adds a floor plan to a project created without one, or replaces it. */
+function PlanUpload({ label, small }: { label: string; small?: boolean }) {
+  const project = useStore((s) => s.project)!
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const upload = async (file: File) => {
+    if (project.planImage && !confirm('Bytte plantegning? Målestokken må kalibreres på nytt.')) return
+    setBusy(true)
+    setError(null)
+    try {
+      const { planImage, pxPerMeter } = await api.uploadPlan(project.id, file)
+      // Saved by autosave like any other change
+      useStore.getState().updateProject((p) => ({ ...p, planImage, calibration: { pxPerMeter, calibrated: false } }))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <label className={small ? 'file-link' : 'file-button'}>
+        {busy ? 'Laster opp…' : label}
+        <input
+          type="file"
+          accept="image/*"
+          hidden
+          disabled={busy}
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            e.target.value = ''
+            if (f) void upload(f)
+          }}
+        />
+      </label>
       {error && <p className="error">{error}</p>}
     </>
   )

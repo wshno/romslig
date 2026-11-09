@@ -64,6 +64,15 @@ export const api = {
       body: JSON.stringify(p),
     }),
   remove: (id: string) => req<void>(`/api/projects/${id}`, { method: 'DELETE' }),
+  /** Uploads (or replaces) the floor plan; the caller puts the answer into the project. */
+  uploadPlan: async (id: string, image: File) => {
+    const fd = new FormData()
+    fd.set('image', await preparePlanPng(image))
+    return req<{ planImage: NonNullable<Project['planImage']>; pxPerMeter: number }>(`/api/projects/${id}/plan`, {
+      method: 'PUT',
+      body: fd,
+    })
+  },
   planUrl: (id: string) => `/api/projects/${id}/plan`,
 }
 

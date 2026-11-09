@@ -17,5 +17,7 @@ export interface ProjectStore {
   update(owner: string, project: Project, expectedVersion: number): Promise<Project>
   delete(owner: string, id: string): Promise<void>
   getPlan(owner: string, id: string): Promise<Uint8Array>
+  /** Adds or replaces the plan image of an existing project. Throws 404 if missing. */
+  putPlan(owner: string, id: string, png: Uint8Array): Promise<void>
   close?(): Promise<void>
 }

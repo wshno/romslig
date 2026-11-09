@@ -49,6 +49,24 @@ describe('API', () => {
     expect((await app.request('/api/projects', as('kari', { method: 'POST', body: fd }))).status).toBe(400)
   })
 
+  it('adds a floor plan to a project created without one', async () => {
+    const p = await createProject('kari', false)
+    const upload = (user: string, png: Uint8Array) => {
+      const fd = new FormData()
+      fd.set('image', new File([png as Uint8Array<ArrayBuffer>], 'plan.png', { type: 'image/png' }))
+      return app.request(`/api/projects/${p.id}/plan`, as(user, { method: 'PUT', body: fd }))
+    }
+    const res = await upload('kari', makePng(600, 300))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { planImage: { width: number; height: number }; pxPerMeter: number }
+    expect(body.planImage).toMatchObject({ width: 600, height: 300 })
+    expect(body.pxPerMeter).toBe(40)
+    expect((await app.request(`/api/projects/${p.id}/plan`, as('kari'))).status).toBe(200)
+    // The project itself (and its version) is untouched; the client saves planImage into it
+    expect(((await (await app.request(`/api/projects/${p.id}`, as('kari'))).json()) as Project).version).toBe(1)
+    expect((await upload('ola', makePng(10, 10))).status).toBe(404)
+  })
+
   it('keeps the projects of different users apart', async () => {
     const p = await createProject('kari')
     expect((await app.request(`/api/projects/${p.id}`, as('ola'))).status).toBe(404)

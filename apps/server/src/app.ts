@@ -9,6 +9,15 @@ import { aiProxy } from './ai/proxy.ts'
 
 type Env = { Variables: { user: User } }
 
+async function readPlanUpload(image: File) {
+  if (image.size > MAX_PLAN_BYTES) throw new HttpError(413, 'Plantegningen er for stor (maks 15 MB).')
+  const png = new Uint8Array(await image.arrayBuffer())
+  return { png, ...readPngSize(png) }
+}
+
+/** Default scale until calibrated: assume the plan is about 15 m across. */
+const defaultPxPerMeter = (width: number, height: number) => Math.max(width, height) / 15
+
 export interface AppOptions {
   ai?: AiConfig
   /** Used by the AI proxy to reach Anthropic (tests inject a fake). */
@@ -68,14 +77,11 @@ export function createApp(store: ProjectStore, authOpts: AuthOptions, opts: AppO
       updatedAt: now,
     }
     let png: Uint8Array | null = null
-    const image = body.image
-    if (image instanceof File) {
-      if (image.size > MAX_PLAN_BYTES) throw new HttpError(413, 'Plantegningen er for stor (maks 15 MB).')
-      png = new Uint8Array(await image.arrayBuffer())
-      const { width, height } = readPngSize(png)
-      project.planImage = { file: 'plan.png', width, height }
-      // Default scale: assume the plan is ~15 m across until calibrated
-      project.calibration.pxPerMeter = Math.max(width, height) / 15
+    if (body.image instanceof File) {
+      const plan = await readPlanUpload(body.image)
+      png = plan.png
+      project.planImage = { file: 'plan.png', width: plan.width, height: plan.height }
+      project.calibration.pxPerMeter = defaultPxPerMeter(plan.width, plan.height)
     }
     return c.json(await store.create(owner(c), project, png), 201)
   })
@@ -96,6 +102,23 @@ export function createApp(store: ProjectStore, authOpts: AuthOptions, opts: AppO
   app.delete('/projects/:id', async (c) => {
     await store.delete(owner(c), c.req.param('id'))
     return c.body(null, 204)
+  })
+
+  /**
+   * Adds or replaces the floor plan of an existing project. Only the image is stored here; the
+   * client puts the returned planImage into the project and saves it the usual way (If-Match),
+   * so this never competes with autosave over the project version.
+   */
+  app.put('/projects/:id/plan', async (c) => {
+    const body = await c.req.parseBody()
+    if (!(body.image instanceof File)) throw new HttpError(400, 'Mangler bilde.')
+    const { png, width, height } = await readPlanUpload(body.image)
+    await store.putPlan(owner(c), c.req.param('id'), png)
+    // A new file name per upload lets the browser tell the new image from a cached old one
+    return c.json({
+      planImage: { file: `plan-${Date.now().toString(36)}.png`, width, height },
+      pxPerMeter: defaultPxPerMeter(width, height),
+    })
   })
 
   app.get('/projects/:id/plan', async (c) => {
