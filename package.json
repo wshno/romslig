@@ -9,9 +9,20 @@
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
     "test": "npm test -w packages/shared && npm test -w apps/server",
-    "typecheck": "tsc -p packages/shared && tsc -p apps/server && tsc -p apps/web"
+    "typecheck": "tsc -p packages/shared && tsc -p apps/server && tsc -p apps/web",
+    "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "concurrently": "^10.0.7"
-  }
+    "@wshno/eslint-config": "0.2.0",
+    "@wshno/prettier-config": "0.1.1",
+    "@wshno/tsconfig": "0.1.1",
+    "concurrently": "^10.0.7",
+    "eslint": "10.13.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3"
+  },
+  "prettier": "@wshno/prettier-config"
 }

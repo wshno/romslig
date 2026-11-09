@@ -3,6 +3,7 @@
 Romslig er en lokal web-app for å planlegge renovering: plantegning (JPG/PNG) → målriktig 2D-modell → 3D → (snart) innredning og AI-forslag.
 
 ## Kom i gang
+
 ```
 npm install
 cp .env.example .env      # legg inn ANTHROPIC_API_KEY for AI-digitalisering
@@ -11,6 +12,7 @@ npm test
 ```
 
 ## Arbeidsflyt
+
 1. **Nytt prosjekt**: last opp plantegningen.
 2. **Kalibrer (K)**: klikk på endene av en målsatt vegg/målelinje og skriv inn lengden.
 3. **Digitaliser med AI**: Claude foreslår vegger, dører, vinduer og rom (oransje overlegg). Godta eller forkast.
@@ -21,11 +23,13 @@ npm test
 Snarveier: Ctrl+Z / Ctrl+Y, Delete, Esc, Shift = fri vinkel ved tegning, dobbeltklikk avslutter vegg.
 
 ## Struktur
+
 - `packages/shared`: datamodell (zod) og geometri (romdeteksjon, snapping, veggsegmenter)
 - `apps/server`: Hono-API, lagring i `data/projects/<id>/`, AI-digitalisering (`src/ai/digitize.ts`)
 - `apps/web`: React + Konva (2D) + react-three-fiber (3D)
 
 ## Veikart
+
 - [x] Fase 1: prosjekter, opplasting, kalibrering, 2D-editor (vegger, dører, vinduer, rom)
 - [x] Fase 2: AI-digitalisering av plantegning med arealvalidering
 - [x] Fase 3: 3D-visning (fugleperspektiv, gå rundt, lave vegger, bærevegger)

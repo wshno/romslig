@@ -1,2 +1,2 @@
-export * from "./model.ts";
-export * from "./geometry.ts";
+export * from './model.ts'
+export * from './geometry.ts'
