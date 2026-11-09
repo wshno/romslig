@@ -39,6 +39,7 @@ Snarveier: Ctrl+Z / Ctrl+Y, Delete, Esc, Shift = fri vinkel ved tegning, dobbelt
 - [x] Fase 4: møbelkatalog (45 møbler), dra og slipp i 2D/3D, snapping mot vegg, sjekk av kollisjon, fri plass og dørslag
 - [x] Fase 5: AI-assistent (chat) som svarer på spørsmål og lager forslag til møblering og veggendringer som egne varianter, med advarsler om bærevegg, våtrom og yttervegg
 - [x] Gjenkjenne eksisterende møbler fra bilder av rommene (AI) og legge dem inn mot riktig vegg
-- [ ] Sammenligne to varianter side om side
+- [x] Sammenligne to varianter side om side, med oversikt over forskjeller
+- [ ] Tekniske installasjoner: stikkontakter på vegger, vannrør og luftekanaler i vegger, himling og nedforet tak
 
 > Riving eller flytting av vegger må alltid vurderes av fagperson (RIB). Appen gir forslag, ikke byggteknisk godkjenning.

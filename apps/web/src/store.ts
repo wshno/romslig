@@ -22,7 +22,7 @@ import {
 } from '@romslig/shared'
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'opening' | 'room' | 'calibrate'
-export type ViewMode = '2d' | '3d' | 'split'
+export type ViewMode = '2d' | '3d' | 'split' | 'compare'
 export type InspectorTab = 'oversikt' | 'moebler' | 'assistent'
 export type Selection = { kind: 'wall' | 'opening' | 'room' | 'furniture'; id: string } | null
 

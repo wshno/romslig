@@ -4,6 +4,7 @@ import { Plan2D } from '../editor2d/Plan2D.tsx'
 import { Viewer3D } from '../viewer3d/Viewer3D.tsx'
 import { activeScenario, redo, undo, useStore, type Tool, type ViewMode } from '../store.ts'
 import { Inspector } from './Inspector.tsx'
+import { CompareView } from './CompareView.tsx'
 
 const TOOLS: { id: Tool; label: string; icon: string; key: string }[] = [
   { id: 'select', label: 'Velg', icon: '↖', key: 'v' },
@@ -126,6 +127,7 @@ export function Editor({ projectId }: { projectId: string }) {
 
 function ViewPanes() {
   const view = useStore((s) => s.view)
+  if (view === 'compare') return <CompareView />
   return (
     <div className={`views-inner ${view}`}>
       {view !== '3d' && <Plan2D />}
@@ -144,6 +146,7 @@ function TopBar({ save }: { save: SaveState }) {
     { id: '2d', label: '2D' },
     { id: 'split', label: '2D + 3D' },
     { id: '3d', label: '3D' },
+    { id: 'compare', label: 'Sammenlign' },
   ]
   return (
     <header className="topbar">

@@ -5,6 +5,7 @@ import type { KonvaEventObject } from 'konva/lib/Node'
 import {
   add,
   areaDeviation,
+  furnitureIssues,
   clampOpening,
   dist,
   mul,
@@ -19,13 +20,13 @@ import {
   wallLength,
   type Opening,
   type Room,
+  type Scenario,
   type SnapKind,
   type Vec2,
   type Wall,
 } from '@romslig/shared'
 import { api } from '../api.ts'
 import { activeScenario, beginGesture, endGesture, useStore } from '../store.ts'
-import { useFurnitureIssues } from '../hooks.ts'
 import { Furniture2D } from './Furniture2D.tsx'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
 import { ROOM_COLORS, fmtM, fmtM2 } from '../theme.ts'
@@ -77,12 +78,30 @@ function wallQuad(w: Pick<Wall, 'a' | 'b' | 'thickness'>): number[] {
   return pts.flatMap((p) => [p.x, p.y])
 }
 
-export function Plan2D() {
+export type PlanView = { scale: number; x: number; y: number }
+
+interface Plan2DProps {
+  /** Variant to show; defaults to the active one. */
+  scenarioId?: string
+  /** Comparison mode: no editing, only panning and zooming. */
+  readOnly?: boolean
+  /** Highlights walls that differ from this variant (removed: red dashed, new: green). */
+  compareWith?: Scenario | null
+  /** Shared pan/zoom, so two plans move together. null = fit to the container. */
+  sharedView?: { value: PlanView | null; set(v: PlanView | null): void }
+  title?: string
+}
+
+export function Plan2D({ scenarioId, readOnly = false, compareWith = null, sharedView, title }: Plan2DProps = {}) {
   const [containerRef, size] = useSize<HTMLDivElement>()
   const stageRef = useRef<Konva.Stage>(null)
   const project = useStore((s) => s.project)!
-  const scenario = activeScenario(project)
-  const { tool, selection, suggestion } = useStore()
+  const scenario = project.scenarios.find((sc) => sc.id === scenarioId) ?? activeScenario(project)
+  const store = useStore()
+  const tool = readOnly ? 'select' : store.tool
+  const selection = readOnly ? null : store.selection
+  const suggestion = readOnly ? null : store.suggestion
+  const interactive = !readOnly && tool === 'select'
   const { select, addWall, addOpening, addRoom, updateWall, updateOpening, calibrate, setTool } = useStore.getState()
 
   const img = useHtmlImage(project.planImage ? `${api.planUrl(project.id)}?v=${project.createdAt}` : null)
@@ -91,14 +110,16 @@ export function Plan2D() {
   const imgH = project.planImage ? project.planImage.height / ppm : 10
 
   /** null = fit the drawing to the container */
-  const [manualView, setManualView] = useState<{ scale: number; x: number; y: number } | null>(null)
+  const [ownView, setOwnView] = useState<PlanView | null>(null)
+  const manualView = sharedView ? sharedView.value : ownView
+  const setManualView = sharedView ? sharedView.set : setOwnView
   const [cursor, setCursor] = useState<{ p: Vec2; kind: SnapKind } | null>(null)
   const [anchor, setAnchor] = useState<Vec2 | null>(null)
   const [roomPts, setRoomPts] = useState<Vec2[]>([])
   const [calPts, setCalPts] = useState<Vec2[]>([])
   const [imgOpacity, setImgOpacity] = useState(0.6)
   const [showDims, setShowDims] = useState(true)
-  const issues = useFurnitureIssues()
+  const issues = useMemo(() => furnitureIssues(scenario), [scenario])
   const shiftRef = useRef(false)
   const lastButtonRef = useRef(0)
   /** Our own double-click detection: same spot (screen px) within 350 ms. */
@@ -164,7 +185,7 @@ export function Plan2D() {
   }
 
   const onClick = (e: KonvaEventObject<MouseEvent>) => {
-    if (e.evt.button !== 0) return
+    if (e.evt.button !== 0 || readOnly) return
     const raw = worldPointer()
     if (!raw) return
     const now = performance.now()
@@ -250,7 +271,7 @@ export function Plan2D() {
       onDrop={(e) => {
         const id = e.dataTransfer.getData(FURNITURE_DND_TYPE)
         const stage = stageRef.current
-        if (!id || !stage) return
+        if (!id || !stage || readOnly) return
         e.preventDefault()
         stage.setPointersPositions(e.nativeEvent)
         const p = stage.getRelativePointerPosition()
@@ -299,7 +320,7 @@ export function Plan2D() {
                 room={r}
                 scale={scale}
                 selected={selection?.id === r.id}
-                interactive={tool === 'select'}
+                interactive={interactive}
               />
             ))}
             {walls.map((w) => (
@@ -312,12 +333,13 @@ export function Plan2D() {
                 hitStrokeWidth={8}
                 strokeScaleEnabled={false}
                 onClick={(e) => {
-                  if (tool !== 'select') return
+                  if (!interactive) return
                   e.cancelBubble = true
                   select({ kind: 'wall', id: w.id })
                 }}
               />
             ))}
+            {compareWith && <WallDiff current={scenario} other={compareWith} />}
             {scenario.openings.map((o) => {
               const w = walls.find((x) => x.id === o.wallId)
               return w ? (
@@ -327,7 +349,7 @@ export function Plan2D() {
                   wall={w}
                   scale={scale}
                   selected={selection?.id === o.id}
-                  interactive={tool === 'select'}
+                  interactive={interactive}
                   onSelect={() => select({ kind: 'opening', id: o.id })}
                   onMove={(offset) => updateOpening(o.id, { offset })}
                 />
@@ -339,7 +361,7 @@ export function Plan2D() {
                 item={f}
                 issues={issues.get(f.id)}
                 selected={selection?.id === f.id}
-                interactive={tool === 'select'}
+                interactive={interactive}
                 scale={scale}
                 shiftRef={shiftRef}
               />
@@ -419,7 +441,8 @@ export function Plan2D() {
         <button onClick={() => setManualView(null)} title="Tilpass visning">
           ⤢
         </button>
-        <span className="hint">{HINTS[tool]}</span>
+        {title && <span className="plan-title">{title}</span>}
+        {!readOnly && <span className="hint">{HINTS[tool]}</span>}
       </div>
     </div>
   )
@@ -782,6 +805,47 @@ function SuggestionOverlay({ scale }: { scale: number }) {
           />
         )
       })}
+    </Group>
+  )
+}
+
+const samePos = (a: Wall, b: Wall) => dist(a.a, b.a) + dist(a.b, b.b) < 0.01
+
+/** Walls removed compared with `other` (red, dashed, where they used to be) and new/moved ones (green). */
+function WallDiff({ current, other }: { current: Scenario; other: Scenario }) {
+  const removed = other.walls.filter((w) => {
+    const now = current.walls.find((x) => x.id === w.id)
+    return !now || !samePos(now, w)
+  })
+  const added = current.walls.filter((w) => {
+    const before = other.walls.find((x) => x.id === w.id)
+    return !before || !samePos(before, w)
+  })
+  return (
+    <Group listening={false}>
+      {removed.map((w) => (
+        <Line
+          key={`rm-${w.id}`}
+          points={wallQuad(w)}
+          closed
+          fill="#fecaca"
+          opacity={0.8}
+          stroke="#dc2626"
+          strokeWidth={2}
+          dash={[6, 4]}
+          strokeScaleEnabled={false}
+        />
+      ))}
+      {added.map((w) => (
+        <Line
+          key={`add-${w.id}`}
+          points={wallQuad(w)}
+          closed
+          stroke="#16a34a"
+          strokeWidth={3}
+          strokeScaleEnabled={false}
+        />
+      ))}
     </Group>
   )
 }
