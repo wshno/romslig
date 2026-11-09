@@ -4,6 +4,12 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls } from '@react-three/drei'
 import { clampOpening, wallDir, wallLength, wallPieces, type Opening, type Room, type Wall } from '@romslig/shared'
 import { useScenario, useStore } from '../store.ts'
+import { useFurnitureIssues } from '../hooks.ts'
+import { FURNITURE_DND_TYPE } from '../dnd.ts'
+import { Furniture3D } from './Furniture3D.tsx'
+
+/** Converts a screen position to a point on the floor; set by <FloorPicker> inside the canvas. */
+type FloorPick = (clientX: number, clientY: number) => { x: number; y: number } | null
 import { ROOM_COLORS } from '../theme.ts'
 
 type CameraMode = 'orbit' | 'walk'
@@ -13,6 +19,10 @@ export function Viewer3D() {
   const [mode, setMode] = useState<CameraMode>('orbit')
   const [cutHeight, setCutHeight] = useState<number | null>(null)
   const [showLoadBearing, setShowLoadBearing] = useState(true)
+  const issues = useFurnitureIssues()
+  const selectedId = useStore((s) => s.selection?.id)
+  const dragging3d = useStore((s) => s.dragging3d)
+  const pickRef = useRef<FloorPick | null>(null)
 
   const bounds = useMemo(() => {
     const pts = scenario?.walls.flatMap((w) => [w.a, w.b]) ?? []
@@ -25,7 +35,20 @@ export function Viewer3D() {
 
   if (!scenario) return null
   return (
-    <div className="viewer3d">
+    <div
+      className="viewer3d"
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(FURNITURE_DND_TYPE)) e.preventDefault()
+      }}
+      onDrop={(e) => {
+        const id = e.dataTransfer.getData(FURNITURE_DND_TYPE)
+        const p = id ? pickRef.current?.(e.clientX, e.clientY) : null
+        if (!id || !p) return
+        e.preventDefault()
+        useStore.getState().addFurniture(id, p, { snap: !e.shiftKey })
+        useStore.getState().setTool('select')
+      }}
+    >
       <Canvas
         shadows
         camera={{
@@ -54,6 +77,10 @@ export function Viewer3D() {
         {scenario.rooms.map((r) => (
           <Floor key={r.id} room={r} />
         ))}
+        <FloorPicker pickRef={pickRef} />
+        {scenario.furniture.map((f) => (
+          <Furniture3D key={f.id} item={f} hasIssues={issues.has(f.id)} selected={selectedId === f.id} />
+        ))}
         {scenario.walls.map((w) => (
           <WallMesh
             key={w.id}
@@ -71,7 +98,12 @@ export function Viewer3D() {
           })}
         {mode === 'orbit' ? (
           <>
-            <OrbitControls makeDefault target={[bounds.cx, 0, bounds.cy]} maxPolarAngle={Math.PI / 2 - 0.02} />
+            <OrbitControls
+              makeDefault
+              enabled={!dragging3d}
+              target={[bounds.cx, 0, bounds.cy]}
+              maxPolarAngle={Math.PI / 2 - 0.02}
+            />
             <FitCamera bounds={bounds} />
           </>
         ) : (
@@ -245,5 +277,24 @@ function FitCamera({ bounds }: { bounds: { cx: number; cy: number; size: number 
     camera.position.set(bounds.cx + bounds.size * 0.6, bounds.size * 0.9, bounds.cy + bounds.size * 0.9)
     camera.lookAt(bounds.cx, 0, bounds.cy)
   }, [bounds, camera])
+  return null
+}
+
+function FloorPicker({ pickRef }: { pickRef: React.RefObject<FloorPick | null> }) {
+  const { camera, gl } = useThree()
+  useEffect(() => {
+    const raycaster = new THREE.Raycaster()
+    const floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+    const hit = new THREE.Vector3()
+    pickRef.current = (clientX, clientY) => {
+      const r = gl.domElement.getBoundingClientRect()
+      const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1)
+      raycaster.setFromCamera(ndc, camera)
+      return raycaster.ray.intersectPlane(floor, hit) ? { x: hit.x, y: hit.z } : null
+    }
+    return () => {
+      pickRef.current = null
+    }
+  }, [camera, gl, pickRef])
   return null
 }

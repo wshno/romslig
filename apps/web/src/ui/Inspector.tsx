@@ -14,6 +14,9 @@ import {
 import { api } from '../api.ts'
 import { activeScenario, useStore } from '../store.ts'
 import { ROOM_COLORS, ROOM_LABELS, fmtM, fmtM2 } from '../theme.ts'
+import { FurnitureCatalog, FurnitureList, FurnitureProps } from './FurniturePanel.tsx'
+
+type Tab = 'oversikt' | 'moebler'
 
 export function Inspector() {
   const project = useStore((s) => s.project)!
@@ -22,11 +25,40 @@ export function Inspector() {
   const wall = selection?.kind === 'wall' ? scenario.walls.find((w) => w.id === selection.id) : undefined
   const opening = selection?.kind === 'opening' ? scenario.openings.find((o) => o.id === selection.id) : undefined
   const room = selection?.kind === 'room' ? scenario.rooms.find((r) => r.id === selection.id) : undefined
-  let content = <Overview />
+  const furniture = selection?.kind === 'furniture' ? scenario.furniture.find((x) => x.id === selection.id) : undefined
+  const [tab, setTab] = useState<Tab>('oversikt')
+  let content = tab === 'oversikt' ? <Overview /> : <FurnitureTab />
   if (wall) content = <WallProps wall={wall} />
   else if (opening) content = <OpeningProps o={opening} />
   else if (room) content = <RoomProps room={room} />
-  return <aside className="inspector">{content}</aside>
+  else if (furniture) content = <FurnitureProps item={furniture} />
+  return (
+    <aside className="inspector">
+      {!selection && (
+        <div className="tabs">
+          <button className={tab === 'oversikt' ? 'active' : ''} onClick={() => setTab('oversikt')}>
+            Oversikt
+          </button>
+          <button className={tab === 'moebler' ? 'active' : ''} onClick={() => setTab('moebler')}>
+            Møbler
+          </button>
+        </div>
+      )}
+      {content}
+    </aside>
+  )
+}
+
+function FurnitureTab() {
+  return (
+    <div className="props">
+      <FurnitureCatalog />
+      <section>
+        <h4>I denne varianten</h4>
+        <FurnitureList />
+      </section>
+    </div>
+  )
 }
 
 function Num({
@@ -132,6 +164,12 @@ function OpeningProps({ o }: { o: Opening }) {
       <Num label="Høyde" value={o.height} onChange={(v) => update({ height: Math.max(0.2, v) })} />
       <Num label="Brystning" value={o.sill} onChange={(v) => update({ sill: Math.max(0, v) })} />
       <Num label="Posisjon (senter)" value={o.offset} onChange={(v) => update({ offset: v })} />
+      {o.kind === 'door' && (
+        <label className="field check">
+          <input type="checkbox" checked={o.flip} onChange={(e) => update({ flip: e.target.checked })} />
+          <span>Slår til motsatt side</span>
+        </label>
+      )}
       <p className="muted">Tips: dra åpningen langs veggen i 2D.</p>
     </div>
   )
@@ -180,6 +218,8 @@ function RoomProps({ room }: { room: Room }) {
           {(dev * 100).toFixed(1)} %{Math.abs(dev) > 0.05 ? '. Sjekk kalibrering og veggplassering.' : '. OK'}
         </p>
       )}
+      <h4>Møbler i rommet</h4>
+      <FurnitureList roomId={room.id} />
     </div>
   )
 }
@@ -192,7 +232,6 @@ function Overview() {
   const [msg, setMsg] = useState<string | null>(null)
   return (
     <div className="props">
-      <h3>Oversikt</h3>
       <section>
         <h4>1. Målestokk</h4>
         {project.calibration.calibrated ? (

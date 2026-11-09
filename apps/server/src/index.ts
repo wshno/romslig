@@ -87,4 +87,15 @@ app.post('/projects/:id/digitize', async (c) => {
 })
 
 const port = Number(process.env.PORT ?? 8787)
-serve({ fetch: app.fetch, port }, () => console.log(`API: http://localhost:${port}/api`))
+const server = serve({ fetch: app.fetch, port }, () => console.log(`API: http://localhost:${port}/api`))
+
+// tsx watch restarts the process on every change. On Windows the previous process can hold the
+// port for a moment, so retry instead of crashing, and release the port promptly on shutdown.
+let retries = 0
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code !== 'EADDRINUSE' || retries++ >= 20) throw err
+  setTimeout(() => server.listen(port), 250)
+})
+const shutdown = () => server.close(() => process.exit(0))
+process.on('SIGINT', shutdown)
+process.on('SIGTERM', shutdown)

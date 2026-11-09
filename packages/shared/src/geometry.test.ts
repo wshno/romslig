@@ -79,8 +79,8 @@ describe('wallPieces', () => {
   it('splits a wall around a window and a door', () => {
     const w = wall(0, 0, 5, 0)
     const ops: Opening[] = [
-      { id: 'o1', wallId: w.id, kind: 'window', offset: 1, width: 1, height: 1.2, sill: 0.9 },
-      { id: 'o2', wallId: w.id, kind: 'door', offset: 3.5, width: 0.9, height: 2.1, sill: 0 },
+      { id: 'o1', wallId: w.id, kind: 'window', offset: 1, width: 1, height: 1.2, sill: 0.9, flip: false },
+      { id: 'o2', wallId: w.id, kind: 'door', offset: 3.5, width: 0.9, height: 2.1, sill: 0, flip: false },
     ]
     const p = wallPieces(w, ops)
     // solid, below window, above window, solid, above door, solid

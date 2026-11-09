@@ -25,6 +25,9 @@ import {
 } from '@romslig/shared'
 import { api } from '../api.ts'
 import { activeScenario, beginGesture, endGesture, useStore } from '../store.ts'
+import { useFurnitureIssues } from '../hooks.ts'
+import { Furniture2D } from './Furniture2D.tsx'
+import { FURNITURE_DND_TYPE } from '../dnd.ts'
 import { ROOM_COLORS, fmtM, fmtM2 } from '../theme.ts'
 
 Konva.dragButtons = [0, 1]
@@ -95,6 +98,7 @@ export function Plan2D() {
   const [calPts, setCalPts] = useState<Vec2[]>([])
   const [imgOpacity, setImgOpacity] = useState(0.6)
   const [showDims, setShowDims] = useState(true)
+  const issues = useFurnitureIssues()
   const shiftRef = useRef(false)
   const lastButtonRef = useRef(0)
   /** Our own double-click detection: same spot (screen px) within 350 ms. */
@@ -236,7 +240,24 @@ export function Plan2D() {
   const crosshair = tool !== 'select'
 
   return (
-    <div ref={containerRef} className="plan2d" style={{ cursor: crosshair ? 'crosshair' : 'default' }}>
+    <div
+      ref={containerRef}
+      className="plan2d"
+      style={{ cursor: crosshair ? 'crosshair' : 'default' }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(FURNITURE_DND_TYPE)) e.preventDefault()
+      }}
+      onDrop={(e) => {
+        const id = e.dataTransfer.getData(FURNITURE_DND_TYPE)
+        const stage = stageRef.current
+        if (!id || !stage) return
+        e.preventDefault()
+        stage.setPointersPositions(e.nativeEvent)
+        const p = stage.getRelativePointerPosition()
+        if (p) useStore.getState().addFurniture(id, p, { snap: !e.shiftKey })
+        useStore.getState().setTool('select')
+      }}
+    >
       {view && (
         <Stage
           ref={stageRef}
@@ -312,6 +333,17 @@ export function Plan2D() {
                 />
               ) : null
             })}
+            {scenario.furniture.map((f) => (
+              <Furniture2D
+                key={f.id}
+                item={f}
+                issues={issues.get(f.id)}
+                selected={selection?.id === f.id}
+                interactive={tool === 'select'}
+                scale={scale}
+                shiftRef={shiftRef}
+              />
+            ))}
             {showDims && scenario.rooms.map((r) => <RoomEdgeLengths key={`dim-${r.id}`} room={r} scale={scale} />)}
             {selectedWall && (
               <WallHandles
@@ -612,7 +644,7 @@ function OpeningShape(props: {
         strokeScaleEnabled={false}
       />
       {o.kind === 'door' && (
-        <>
+        <Group scaleY={o.flip ? -1 : 1}>
           <Line points={[0, -t / 2, 0, -t / 2 - w]} stroke={color} strokeWidth={sw} strokeScaleEnabled={false} />
           <Arc
             x={0}
@@ -626,7 +658,7 @@ function OpeningShape(props: {
             strokeScaleEnabled={false}
             dash={[4, 3]}
           />
-        </>
+        </Group>
       )}
       {o.kind === 'window' && <Line points={[0, 0, w, 0]} stroke={color} strokeWidth={sw} strokeScaleEnabled={false} />}
       {o.kind === 'opening' && (

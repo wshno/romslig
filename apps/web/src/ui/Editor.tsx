@@ -73,8 +73,20 @@ export function Editor({ projectId }: { projectId: string }) {
       } else if (mod && e.key.toLowerCase() === 'y') {
         e.preventDefault()
         redo()
+      } else if (mod && e.key.toLowerCase() === 'd') {
+        e.preventDefault()
+        useStore.getState().duplicateSelected()
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         useStore.getState().deleteSelected()
+      } else if (
+        !mod &&
+        ['q', 'e'].includes(e.key.toLowerCase()) &&
+        useStore.getState().selection?.kind === 'furniture'
+      ) {
+        const step = e.shiftKey ? 15 : 90
+        useStore
+          .getState()
+          .rotateFurniture(useStore.getState().selection!.id, e.key.toLowerCase() === 'q' ? -step : step)
       } else if (!mod && !e.altKey) {
         const t = TOOLS.find((x) => x.key === e.key.toLowerCase())
         if (t && document.pointerLockElement === null) useStore.getState().setTool(t.id)

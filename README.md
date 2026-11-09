@@ -33,7 +33,8 @@ Snarveier: Ctrl+Z / Ctrl+Y, Delete, Esc, Shift = fri vinkel ved tegning, dobbelt
 - [x] Fase 1: prosjekter, opplasting, kalibrering, 2D-editor (vegger, dører, vinduer, rom)
 - [x] Fase 2: AI-digitalisering av plantegning med arealvalidering
 - [x] Fase 3: 3D-visning (fugleperspektiv, gå rundt, lave vegger, bærevegger)
-- [ ] Fase 4: møbelkatalog, dra og slipp, sjekk av plass rundt møblene
+- [x] Fase 4: møbelkatalog (45 møbler), dra og slipp i 2D/3D, snapping mot vegg, sjekk av kollisjon, fri plass og dørslag
 - [ ] Fase 5: AI-assistent som foreslår møblering, materialer og veggendringer som egne varianter
+- [ ] Senere: gjenkjenne eksisterende møbler fra bilder av rommene (AI) og legge dem inn i modellen
 
 > Riving eller flytting av vegger må alltid vurderes av fagperson (RIB). Appen gir forslag, ikke byggteknisk godkjenning.

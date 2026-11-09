@@ -3,10 +3,15 @@ import { temporal } from 'zundo'
 import {
   DEFAULTS,
   detectRoomPolygons,
+  getCatalogItem,
+  itemSize,
   newId,
   pointInPolygon,
+  roomAt,
+  snapToWall,
   polygonCentroid,
   type DigitizeSuggestion,
+  type FurnitureItem,
   type Opening,
   type OpeningKind,
   type Project,
@@ -18,7 +23,7 @@ import {
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'opening' | 'room' | 'calibrate'
 export type ViewMode = '2d' | '3d' | 'split'
-export type Selection = { kind: 'wall' | 'opening' | 'room'; id: string } | null
+export type Selection = { kind: 'wall' | 'opening' | 'room' | 'furniture'; id: string } | null
 
 interface State {
   project: Project | null
@@ -26,6 +31,8 @@ interface State {
   view: ViewMode
   selection: Selection
   suggestion: DigitizeSuggestion | null
+  /** True while a furniture item is dragged in 3D (orbit controls pause). */
+  dragging3d: boolean
   /** Wall thickness used by the wall tool */
   wallThickness: number
 
@@ -43,6 +50,13 @@ interface State {
   updateOpening(id: string, patch: Partial<Opening>): void
   addRoom(polygon: Vec2[]): void
   updateRoom(id: string, patch: Partial<Room>): void
+  /** Places a catalog item; snaps it to a wall when dropped close to one. */
+  addFurniture(catalogId: string, at: Vec2, opts?: { snap?: boolean; rotation?: number }): void
+  updateFurniture(id: string, patch: Partial<FurnitureItem>): void
+  /** Moves an item, snapping it back against a nearby wall unless snap is false. */
+  moveFurniture(id: string, to: Vec2, snap: boolean): void
+  rotateFurniture(id: string, deltaDeg: number): void
+  duplicateSelected(): void
   deleteSelected(): void
   detectRooms(): number
   calibrate(pxDistance: number, meters: number): void
@@ -69,6 +83,7 @@ export const useStore = create<State>()(
       view: 'split',
       selection: null,
       suggestion: null,
+      dragging3d: false,
       wallThickness: DEFAULTS.interiorWallThickness,
 
       load: (p) => set({ project: p, selection: null, suggestion: null, tool: 'select' }),
@@ -106,7 +121,16 @@ export const useStore = create<State>()(
 
       addOpening: (kind, wallId, offset) => {
         const d = DEFAULTS[kind]
-        const o: Opening = { id: newId('o_'), wallId, kind, offset, width: d.width, height: d.height, sill: d.sill }
+        const o: Opening = {
+          id: newId('o_'),
+          wallId,
+          kind,
+          offset,
+          width: d.width,
+          height: d.height,
+          sill: d.sill,
+          flip: false,
+        }
         get().updateScenario((s) => ({ ...s, openings: [...s.openings, o] }))
         set({ selection: { kind: 'opening', id: o.id } })
       },
@@ -125,10 +149,57 @@ export const useStore = create<State>()(
       updateRoom: (id, patch) =>
         get().updateScenario((s) => ({ ...s, rooms: s.rooms.map((r) => (r.id === id ? { ...r, ...patch } : r)) })),
 
+      addFurniture: (catalogId, at, opts) => {
+        const sc = activeScenario(get().project!)
+        const cat = getCatalogItem(catalogId)
+        const snapped = opts?.snap === false || cat.shape === 'rug' ? null : snapToWall(at, cat, sc.walls)
+        const pos = snapped ?? { x: at.x, y: at.y, rotation: opts?.rotation ?? 0 }
+        const item: FurnitureItem = {
+          id: newId('f_'),
+          catalogId,
+          x: pos.x,
+          y: pos.y,
+          rotation: pos.rotation,
+          roomId: roomAt(pos, sc.rooms)?.id ?? null,
+          size: null,
+          label: null,
+        }
+        get().updateScenario((s) => ({ ...s, furniture: [...s.furniture, item] }))
+        set({ selection: { kind: 'furniture', id: item.id } })
+      },
+      updateFurniture: (id, patch) =>
+        get().updateScenario((s) => ({
+          ...s,
+          furniture: s.furniture.map((f) => (f.id === id ? { ...f, ...patch } : f)),
+        })),
+      moveFurniture: (id, to, snap) => {
+        const sc = activeScenario(get().project!)
+        const item = sc.furniture.find((f) => f.id === id)
+        if (!item) return
+        const cat = getCatalogItem(item.catalogId)
+        const snapped = snap && cat.shape !== 'rug' ? snapToWall(to, itemSize(item, cat), sc.walls) : null
+        const pos = snapped ?? { x: to.x, y: to.y, rotation: item.rotation }
+        get().updateFurniture(id, { ...pos, roomId: roomAt(pos, sc.rooms)?.id ?? null })
+      },
+      rotateFurniture: (id, deltaDeg) => {
+        const item = activeScenario(get().project!).furniture.find((f) => f.id === id)
+        if (item) get().updateFurniture(id, { rotation: (((item.rotation + deltaDeg) % 360) + 360) % 360 })
+      },
+      duplicateSelected: () => {
+        const sel = get().selection
+        if (sel?.kind !== 'furniture') return
+        const item = activeScenario(get().project!).furniture.find((f) => f.id === sel.id)
+        if (!item) return
+        const copy = { ...item, id: newId('f_'), x: item.x + 0.3, y: item.y + 0.3 }
+        get().updateScenario((s) => ({ ...s, furniture: [...s.furniture, copy] }))
+        set({ selection: { kind: 'furniture', id: copy.id } })
+      },
+
       deleteSelected: () => {
         const sel = get().selection
         if (!sel) return
         get().updateScenario((s) => {
+          if (sel.kind === 'furniture') return { ...s, furniture: s.furniture.filter((f) => f.id !== sel.id) }
           if (sel.kind === 'wall')
             return {
               ...s,

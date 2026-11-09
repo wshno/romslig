@@ -182,6 +182,7 @@ export function toSuggestion(out: DigitizeOutput, project: Project, f: number): 
       width: Math.max(0.4, Math.round(dist(a, b) * 100) / 100),
       height: d.height,
       sill: d.sill,
+      flip: false,
     })
   }
 

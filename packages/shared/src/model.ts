@@ -30,6 +30,8 @@ export const Opening = z.object({
   width: z.number().positive(),
   height: z.number().positive(),
   sill: z.number().min(0),
+  /** Doors: swing to the other side of the wall. */
+  flip: z.boolean().default(false),
 })
 export type Opening = z.infer<typeof Opening>
 
@@ -63,10 +65,18 @@ export type Room = z.infer<typeof Room>
 export const FurnitureItem = z.object({
   id: z.string(),
   catalogId: z.string(),
+  /** Center of the footprint (m). */
   x: z.number(),
   y: z.number(),
+  /** Degrees, clockwise in plan view. 0 = front faces +y (down in the plan). */
   rotation: z.number(),
   roomId: z.string().nullable().default(null),
+  /** Overrides the catalog dimensions, e.g. for the user's own sofa (m). */
+  size: z
+    .object({ w: z.number().positive(), d: z.number().positive(), h: z.number().positive() })
+    .nullable()
+    .default(null),
+  label: z.string().nullable().default(null),
 })
 export type FurnitureItem = z.infer<typeof FurnitureItem>
 

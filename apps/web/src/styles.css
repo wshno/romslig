@@ -414,3 +414,99 @@ select {
   cursor: pointer;
   box-shadow: 0 4px 16px #0002;
 }
+
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+.tabs button {
+  flex: 1;
+  border: none;
+  border-radius: 0;
+  padding: 10px;
+  border-bottom: 2px solid transparent;
+}
+.tabs button.active {
+  background: none;
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.catalog {
+  display: grid;
+  gap: 8px;
+}
+.catalog .row input {
+  flex: 1;
+  min-width: 0;
+}
+.catalog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.catalog-list button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  border-color: transparent;
+  padding: 5px 6px;
+  cursor: grab;
+}
+.catalog-list button:hover {
+  background: var(--bg);
+}
+.catalog-list i,
+.room-list i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.catalog-list .muted {
+  font-size: 12px;
+}
+
+.inspector {
+  overflow-x: hidden;
+}
+.catalog .row select {
+  flex: none;
+  width: 96px;
+}
+.catalog-list button {
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+}
+.catalog-list span,
+.room-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.room-list li {
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
+}
+.room-list .muted {
+  font-size: 12px;
+}
+.props {
+  min-width: 0;
+}
+.field input,
+.field select {
+  min-width: 0;
+  width: 100%;
+}
+.field {
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+.field.check {
+  grid-template-columns: auto 1fr;
+}
+.inspector {
+  scrollbar-gutter: stable;
+}
