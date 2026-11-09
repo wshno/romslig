@@ -51,9 +51,11 @@ modusen for den innloggede brukeren (`{ aiMode, user }`).
 Proxyen har grenser, så serverens nøkkel ikke kan brukes til hva som helst:
 
 - bare modellene i `AI_MODELS` (kommaseparert), ellers 400;
-- `max_tokens` høyst `AI_MAX_TOKENS`, ellers 400;
+- `max_tokens` høyst 64 000, ellers 400;
 - forespørselen høyst 20 MB, ellers 413;
-- høyst `AI_RATE_PER_MIN` forespørsler per bruker per minutt (i minnet, per replika), ellers 429.
+- høyst 20 forespørsler per bruker per minutt (i minnet, per replika), ellers 429.
+
+De to tallgrensene er standarder i koden (`AI_MAX_TOKENS` og `AI_RATE_PER_MIN`) og settes ikke i manifestene. Substitusjon gjør tallverdier om til tall, mens Kubernetes krever strenger i `env`.
 
 Hver forespørsel logges med én linje: bruker, modell, status og antall tokens. Innhold og nøkler logges
 aldri.
@@ -78,8 +80,6 @@ eller en boolsk verdi ville fått feil YAML-type.
 | `AI_SECRET`                   | `romslig-anthropic` | Navnet på en valgfri hemmelighet med nøkkelen `api-key` (blir `ANTHROPIC_API_KEY`). Trengs bare i `server`-modus; mangler den, starter API-et likevel. Standarden er ikke tom fordi Kubernetes avviser et tomt hemmelighetsnavn, også når referansen er valgfri |
 | `AI_GROUP`                    | (tom)               | I `server`-modus: gruppen som får bruke serverens nøkkel. Andre får `byok`. Tom betyr alle innloggede                                                                                                                                                           |
 | `AI_MODELS`                   | `claude-opus-5-5`   | I `server`-modus: modellene proxyen slipper gjennom (kommaseparert)                                                                                                                                                                                             |
-| `AI_MAX_TOKENS`               | `64000`             | I `server`-modus: høyeste `max_tokens` proxyen godtar                                                                                                                                                                                                           |
-| `AI_RATE_PER_MIN`             | `20`                | I `server`-modus: AI-forespørsler per bruker per minutt                                                                                                                                                                                                         |
 | `CSP_MODE`                    | `report-only`       | `report-only` sender CSP-en som `Content-Security-Policy-Report-Only` (brudd vises i konsollen); `enforce` som `Content-Security-Policy`. Velger `apps/web/static-server.<modus>.json`                                                                          |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | (tom)               | OTLP-collector for API-et. Tom betyr ingen eksport                                                                                                                                                                                                              |
 | `APP_ENVIRONMENT`             | `production`        | Ressursattributtet `deployment.environment`                                                                                                                                                                                                                     |
@@ -91,8 +91,8 @@ eller en boolsk verdi ville fått feil YAML-type.
 ### Miljøvariabler i API-et
 
 Satt av `api.yaml`, lest av serveren: `PORT` (`8080`), `AUTH_MODE` (`forward`), `ALLOWED_GROUP`,
-`PG_HOST`, `PG_DB`, `PG_USER`, `PG_PASSWORD`, `AI_MODE`, `AI_GROUP`, `AI_MODELS`, `AI_MAX_TOKENS`,
-`AI_RATE_PER_MIN`, `ANTHROPIC_API_KEY`, `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT` og
+`PG_HOST`, `PG_DB`, `PG_USER`, `PG_PASSWORD`, `AI_MODE`, `AI_GROUP`, `AI_MODELS`,
+`ANTHROPIC_API_KEY`, `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT` og
 `OTEL_RESOURCE_ATTRIBUTES`. Serveren leser også `ANTHROPIC_BASE_URL` (standard
 `https://api.anthropic.com`), men den settes ikke i klyngen.
 
