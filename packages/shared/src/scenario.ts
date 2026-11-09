@@ -8,7 +8,7 @@ import {
   polygonCentroid,
   wallDir,
 } from './geometry.ts'
-import { roomAt, roomEdges } from './furniture.ts'
+import { roomAt, roomEdges, type PlanSide } from './furniture.ts'
 import { newId, type Room, type Scenario } from './model.ts'
 
 /**
@@ -31,7 +31,18 @@ export function redetectRooms(s: Scenario): Scenario {
   return { ...s, rooms, furniture }
 }
 
-const SIDE_NAMES = { top: 'øverst', right: 'til høyre', bottom: 'nederst', left: 'til venstre' } as const
+/** Norwegian names of the plan sides, as in "veggen øverst i plantegningen". */
+export const SIDE_NAMES = { top: 'øverst', right: 'til høyre', bottom: 'nederst', left: 'til venstre' } as const
+
+/**
+ * Which plan wall appears where in a photo taken facing `facing`: straight ahead, at the left and
+ * right edges of the photo, and behind the photographer.
+ */
+export function viewSides(facing: PlanSide): { ahead: PlanSide; left: PlanSide; right: PlanSide; behind: PlanSide } {
+  const order: PlanSide[] = ['top', 'right', 'bottom', 'left'] // clockwise in the plan
+  const i = order.indexOf(facing)
+  return { ahead: facing, right: order[(i + 1) % 4]!, behind: order[(i + 2) % 4]!, left: order[(i + 3) % 4]! }
+}
 
 /**
  * Describes a room's walls for someone looking at photos of it: for each side of the plan, the

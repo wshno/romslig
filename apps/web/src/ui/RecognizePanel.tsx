@@ -7,9 +7,11 @@ import {
   type FurnitureItem,
   type RecognizeResult,
   type RecognizedItem,
+  type PlanSide,
   type Room,
 } from '@romslig/shared'
 import { prepareImage, recognize } from '../api.ts'
+import { DirectionPicker } from './DirectionPicker.tsx'
 import { activeScenario, useStore } from '../store.ts'
 
 const CONFIDENCE = { high: 'sikker', medium: 'ganske sikker', low: 'usikker' } as const
@@ -54,6 +56,9 @@ function placeRecognized(items: RecognizedItem[], room: Room): FurnitureItem[] {
 export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void }) {
   const project = useStore((s) => s.project)!
   const [files, setFiles] = useState<File[]>([])
+  /** The plan wall each photo faces (same order as files). */
+  const [facing, setFacing] = useState<(PlanSide | null)[]>([])
+  const scenario = activeScenario(project)
   const [hint, setHint] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -69,7 +74,9 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
     setBusy(true)
     setError(null)
     try {
-      const images = await Promise.all(files.map(prepareImage))
+      const images = await Promise.all(
+        files.map(async (file, i) => ({ ...(await prepareImage(file)), facing: facing[i] ?? null })),
+      )
       const r = await recognize(project, room.id, hint, images)
       setResult(r)
       setChosen(new Set(r.items.map((_, i) => i).filter((i) => r.items[i]!.confidence !== 'low')))
@@ -108,17 +115,34 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
             type="file"
             accept="image/*"
             multiple
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, 4))}
+            onChange={(e) => {
+              const next = Array.from(e.target.files ?? []).slice(0, 4)
+              setFiles(next)
+              setFacing(next.map(() => null))
+            }}
           />
           {files.length > 0 && (
-            <div className="thumbs">
-              {previews.map((p) => (
-                <img key={p.key} src={p.url} alt="" />
-              ))}
-            </div>
+            <>
+              <p className="muted">
+                For hvert bilde: klikk på veggen du så mot da du tok det. Da vet Claude hvilken vegg som er hvor.
+              </p>
+              <ul className="photo-list">
+                {previews.map((p, i) => (
+                  <li key={p.key}>
+                    <img src={p.url} alt={`Bilde ${i + 1}`} />
+                    <DirectionPicker
+                      scenario={scenario}
+                      room={room}
+                      value={facing[i] ?? null}
+                      onChange={(side) => setFacing(facing.map((v, j) => (j === i ? side : v)))}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
           <label className="field">
-            <span>Kjent mål</span>
+            <span>Tips til Claude</span>
             <input value={hint} onChange={(e) => setHint(e.target.value)} placeholder="f.eks. sengen er 180 cm bred" />
           </label>
           <button className="primary" disabled={!files.length || busy} onClick={() => void run()}>

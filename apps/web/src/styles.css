@@ -779,3 +779,70 @@ select {
   font-weight: 600;
   font-size: 12px;
 }
+
+.photo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.photo-list li {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.photo-list img {
+  width: 96px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.direction-picker {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+}
+.direction-picker svg {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-width: 100%;
+}
+.direction-picker .edge {
+  cursor: pointer;
+}
+.direction-picker .edge:hover line + line {
+  stroke: #2563eb;
+}
+.recognize {
+  min-width: 0;
+}
+.recognize h4 {
+  margin: 0;
+}
+.recognize .field {
+  grid-template-columns: 90px minmax(0, 1fr);
+}
+.recognize input[type='file'] {
+  max-width: 100%;
+}
+.photo-list li {
+  grid-template-columns: 80px minmax(0, 1fr);
+}
+.photo-list img {
+  width: 80px;
+  height: 60px;
+}
+.direction-picker svg {
+  width: 100%;
+  height: auto;
+}
+.recognize {
+  grid-template-columns: minmax(0, 1fr);
+}
+.recognize > * {
+  min-width: 0;
+}

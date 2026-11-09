@@ -1,4 +1,11 @@
-import type { AssistantEvent, DigitizeSuggestion, Project, ProjectSummary, RecognizeResult } from '@romslig/shared'
+import type {
+  AssistantEvent,
+  DigitizeSuggestion,
+  PlanSide,
+  Project,
+  ProjectSummary,
+  RecognizeResult,
+} from '@romslig/shared'
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
@@ -97,7 +104,7 @@ export const recognize = (
   project: Project,
   roomId: string,
   hint: string,
-  images: { mediaType: 'image/jpeg'; data: string }[],
+  images: { mediaType: 'image/jpeg'; data: string; facing: PlanSide | null }[],
 ) =>
   req<RecognizeResult>(`/api/projects/${project.id}/recognize`, {
     method: 'POST',

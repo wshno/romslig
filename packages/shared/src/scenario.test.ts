@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { v } from './geometry.ts'
 import { emptyScenario, type Wall } from './model.ts'
-import { describeRoomSides, redetectRooms } from './scenario.ts'
+import { describeRoomSides, redetectRooms, viewSides } from './scenario.ts'
 
 const wall = (id: string, ax: number, ay: number, bx: number, by: number): Wall => ({
   id,
@@ -53,5 +53,16 @@ describe('describeRoomSides', () => {
     expect(text).toMatch(/øverst.*vindu 120 cm/)
     expect(text).toMatch(/til høyre.*dør 80 cm til «Bad»/)
     expect(text).toMatch(/til venstre.*ingen dører eller vinduer/)
+  })
+})
+
+describe('viewSides', () => {
+  it('maps the facing wall to what is left, right and behind in the photo', () => {
+    // Facing "up" in the plan: the left wall is on the left of the photo
+    expect(viewSides('top')).toEqual({ ahead: 'top', left: 'left', right: 'right', behind: 'bottom' })
+    // Facing the right wall: the top wall is on the left of the photo
+    expect(viewSides('right')).toEqual({ ahead: 'right', left: 'top', right: 'bottom', behind: 'left' })
+    expect(viewSides('bottom')).toEqual({ ahead: 'bottom', left: 'right', right: 'left', behind: 'top' })
+    expect(viewSides('left')).toEqual({ ahead: 'left', left: 'bottom', right: 'top', behind: 'right' })
   })
 })

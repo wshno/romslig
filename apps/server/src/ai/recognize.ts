@@ -4,6 +4,11 @@ import {
   Project,
   catalogById,
   describeRoomSides,
+  SIDE_NAMES,
+  viewSides,
+  type PlanSide,
+  type Room,
+  type Scenario,
   type RecognizeResult,
   type RecognizedItem,
 } from '@romslig/shared'
@@ -14,7 +19,7 @@ import { catalogText } from './workspace.ts'
 export const RecognizeRequest = z.object({
   project: Project,
   roomId: z.string(),
-  /** Something with a known size, e.g. "sengen er 180 cm bred". */
+  /** Free-text tips, e.g. "sengen er 180 cm bred". */
   hint: z.string().max(500).default(''),
   images: z
     .array(
@@ -22,6 +27,8 @@ export const RecognizeRequest = z.object({
         mediaType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
         /** Base64, already downscaled by the client. */
         data: z.string().max(4_000_000),
+        /** The plan wall the photographer was facing, if the user marked it. */
+        facing: z.enum(['top', 'right', 'bottom', 'left']).nullable().default(null),
       }),
     )
     .min(1)
@@ -55,7 +62,7 @@ const SYSTEM = `You identify the existing furniture in photos of a room, so it c
 Rules:
 - List each physical item once, even if it appears in several photos. Skip small objects (lamps, decorations, textiles) except rugs.
 - Pick the closest catalog_id. When the real item differs from the catalog size, give your best estimate of its real size in cm; use doors (usually 80-90 cm wide, 200-210 cm high), standard kitchen modules (60 cm), beds (90/120/150/160/180 × 200 cm) and the user's hint as references.
-- side: which wall of the floor plan the item stands against. The room description tells you which plan side has which windows and doors; use them to orient yourself in each photo (e.g. the bed stands against the wall opposite the window). Use "free" for items standing in the open floor. If you cannot tell, make the best guess and set confidence low.
+- side: which wall of the floor plan the item stands against. When the user has said which wall a photo faces, that orientation is reliable: use the given mapping (ahead / left edge / right edge / behind) directly. Otherwise use the windows and doors in the room description to orient yourself (e.g. the bed stands against the wall opposite the window). Use "free" for items standing in the open floor. If you cannot tell, make the best guess and set confidence low.
 - Be honest about uncertainty in confidence and notes.
 
 Catalog (catalog_id | name | category | width×depth×height | free space):
@@ -67,14 +74,7 @@ export async function recognizeFurniture(req: RecognizeRequest): Promise<Recogni
   const room = scenario.rooms.find((r) => r.id === req.roomId)
   if (!room) throw new HttpError(400, 'Fant ikke rommet')
 
-  const description = [
-    `Rommet heter «${room.name}» (type ${room.type}). Veggene, sett i plantegningen:`,
-    describeRoomSides(scenario, room.id),
-    req.hint ? `Kjent mål fra brukeren: ${req.hint}` : '',
-    `Det er ${req.images.length} bilde(r), nummerert i rekkefølge.`,
-  ]
-    .filter(Boolean)
-    .join('\n')
+  const description = buildDescription(req, scenario, room)
 
   try {
     const stream = anthropic().beta.messages.stream({
@@ -119,4 +119,24 @@ export async function recognizeFurniture(req: RecognizeRequest): Promise<Recogni
   } catch (e) {
     throw explainApiError(e)
   }
+}
+
+const wall = (side: PlanSide) => `veggen ${SIDE_NAMES[side]} (${side})`
+
+/** The text sent with the photos: the room's walls, and for each photo which wall is where. */
+export function buildDescription(req: RecognizeRequest, scenario: Scenario, room: Room): string {
+  const photos = req.images.map((img, i) => {
+    if (!img.facing) return `- Bilde ${i + 1}: retning ikke oppgitt.`
+    const v = viewSides(img.facing)
+    return `- Bilde ${i + 1}: tatt mot ${wall(v.ahead)}. Til venstre i bildet: ${wall(v.left)}. Til høyre i bildet: ${wall(v.right)}. Bak fotografen: ${wall(v.behind)}.`
+  })
+  return [
+    `Rommet heter «${room.name}» (type ${room.type}). Veggene, sett i plantegningen:`,
+    describeRoomSides(scenario, room.id),
+    `Det er ${req.images.length} bilde(r), nummerert i rekkefølge:`,
+    ...photos,
+    req.hint ? `Tips fra brukeren: ${req.hint}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
