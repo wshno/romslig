@@ -174,6 +174,17 @@ export class PostgresStore implements ProjectStore {
     await this.pool.query('delete from projects where id = $1 and owner = $2', [id, owner])
   }
 
+  async putPlan(owner: string, id: string, png: Uint8Array): Promise<void> {
+    // Only inserts when the project exists and belongs to the owner
+    const { rowCount } = await this.pool.query(
+      `insert into plan_images (project_id, png)
+       select id, $3 from projects where id = $1 and owner = $2
+       on conflict (project_id) do update set png = excluded.png`,
+      [id, owner, Buffer.from(png)],
+    )
+    if (!rowCount) throw new HttpError(404, 'Fant ikke prosjektet')
+  }
+
   async getPlan(owner: string, id: string): Promise<Uint8Array> {
     const { rows } = await this.pool.query<{ png: Buffer }>(
       `select i.png from plan_images i join projects p on p.id = i.project_id where p.id = $1 and p.owner = $2`,
