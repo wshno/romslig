@@ -9,7 +9,9 @@ import {
   dist,
   mul,
   nearestWall,
+  norm,
   polygonArea,
+  signedArea,
   polygonCentroid,
   snapPoint,
   sub,
@@ -92,6 +94,7 @@ export function Plan2D() {
   const [roomPts, setRoomPts] = useState<Vec2[]>([])
   const [calPts, setCalPts] = useState<Vec2[]>([])
   const [imgOpacity, setImgOpacity] = useState(0.6)
+  const [showDims, setShowDims] = useState(true)
   const shiftRef = useRef(false)
   const lastButtonRef = useRef(0)
   /** Our own double-click detection: same spot (screen px) within 350 ms. */
@@ -309,6 +312,7 @@ export function Plan2D() {
                 />
               ) : null
             })}
+            {showDims && scenario.rooms.map((r) => <RoomEdgeLengths key={`dim-${r.id}`} room={r} scale={scale} />)}
             {selectedWall && (
               <WallHandles
                 wall={selectedWall}
@@ -373,6 +377,13 @@ export function Plan2D() {
             />
           </label>
         )}
+        <button
+          className={showDims ? 'active' : ''}
+          onClick={() => setShowDims(!showDims)}
+          title="Vis innvendige vegglengder i hvert rom (det du måler med tommestokk inne i rommet)"
+        >
+          Mål
+        </button>
         <button onClick={() => setManualView(null)} title="Tilpass visning">
           ⤢
         </button>
@@ -435,6 +446,52 @@ function Label({ at, text, scale, color = '#0f172a' }: { at: Vec2; text: string;
       shadowBlur={4 / scale}
       shadowOpacity={1}
     />
+  )
+}
+
+/**
+ * Length of each edge of a room, measured along the inside face of the walls, drawn just inside
+ * the room and parallel to the wall. Comparable with tape-measured lengths.
+ */
+function RoomEdgeLengths({ room, scale }: { room: Room; scale: number }) {
+  const poly = room.polygon
+  if (poly.length < 3) return null
+  const ccw = signedArea(poly) > 0
+  const width = 120 / scale
+  const fontSize = 11 / scale
+  return (
+    <Group listening={false}>
+      {poly.map((a, i) => {
+        const b = poly[(i + 1) % poly.length]!
+        const length = dist(a, b)
+        if (length < 0.3) return null
+        const d = norm(sub(b, a))
+        const inward = ccw ? { x: -d.y, y: d.x } : { x: d.y, y: -d.x }
+        const at = add(add(a, mul(sub(b, a), 0.5)), mul(inward, 10 / scale))
+        // Keep text upright: flip edges that point leftwards
+        let angle = (Math.atan2(d.y, d.x) * 180) / Math.PI
+        if (angle > 90) angle -= 180
+        if (angle <= -90) angle += 180
+        return (
+          <Text
+            key={`${a.x}:${a.y}`}
+            x={at.x}
+            y={at.y}
+            width={width}
+            offsetX={width / 2}
+            offsetY={fontSize / 2}
+            rotation={angle}
+            align="center"
+            text={fmtM(length)}
+            fontSize={fontSize}
+            fill="#1e40af"
+            shadowColor="#fff"
+            shadowBlur={3 / scale}
+            shadowOpacity={1}
+          />
+        )
+      })}
+    </Group>
   )
 }
 
