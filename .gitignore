@@ -1,0 +1,6 @@
+node_modules/
+dist/
+data/projects/*
+!data/projects/.gitkeep
+.env
+.playwright-mcp/

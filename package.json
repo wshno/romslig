@@ -1,0 +1,17 @@
+{
+  "name": "romslig",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
+    "test": "npm test -w packages/shared && npm test -w apps/server",
+    "typecheck": "tsc -p packages/shared && tsc -p apps/server && tsc -p apps/web"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7"
+  }
+}

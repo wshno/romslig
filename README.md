@@ -1,0 +1,35 @@
+# Romslig
+
+Romslig er en lokal web-app for å planlegge renovering: plantegning (JPG/PNG) → målriktig 2D-modell → 3D → (snart) innredning og AI-forslag.
+
+## Kom i gang
+```
+npm install
+cp .env.example .env      # legg inn ANTHROPIC_API_KEY for AI-digitalisering
+npm run dev               # web: http://localhost:5173  API: http://localhost:8787
+npm test
+```
+
+## Arbeidsflyt
+1. **Nytt prosjekt**: last opp plantegningen.
+2. **Kalibrer (K)**: klikk på endene av en målsatt vegg/målelinje og skriv inn lengden.
+3. **Digitaliser med AI**: Claude foreslår vegger, dører, vinduer og rom (oransje overlegg). Godta eller forkast.
+   Alternativt kan du tegne selv: Vegg (W), Dør (D), Vindu (N), Åpning (O), Rom (R).
+4. **Finn rom automatisk**: rom beregnes fra veggene (målt til innvendig veggflate), og avvik mot oppgitt m² vises.
+5. **Varianter**: kopier «Eksisterende» og prøv endringer (f.eks. riv en vegg) uten å røre originalen.
+
+Snarveier: Ctrl+Z / Ctrl+Y, Delete, Esc, Shift = fri vinkel ved tegning, dobbeltklikk avslutter vegg.
+
+## Struktur
+- `packages/shared`: datamodell (zod) og geometri (romdeteksjon, snapping, veggsegmenter)
+- `apps/server`: Hono-API, lagring i `data/projects/<id>/`, AI-digitalisering (`src/ai/digitize.ts`)
+- `apps/web`: React + Konva (2D) + react-three-fiber (3D)
+
+## Veikart
+- [x] Fase 1: prosjekter, opplasting, kalibrering, 2D-editor (vegger, dører, vinduer, rom)
+- [x] Fase 2: AI-digitalisering av plantegning med arealvalidering
+- [x] Fase 3: 3D-visning (fugleperspektiv, gå rundt, lave vegger, bærevegger)
+- [ ] Fase 4: møbelkatalog, dra og slipp, sjekk av plass rundt møblene
+- [ ] Fase 5: AI-assistent som foreslår møblering, materialer og veggendringer som egne varianter
+
+> Riving eller flytting av vegger må alltid vurderes av fagperson (RIB). Appen gir forslag, ikke byggteknisk godkjenning.
