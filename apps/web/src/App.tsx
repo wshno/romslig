@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ProjectList } from './ui/ProjectList.tsx'
 import { Editor } from './ui/Editor.tsx'
+import { SiteFooter } from './ui/SiteFooter.tsx'
 
 /** Minimal hash routing: #/ = project list, #/p/<id> = editor. */
 function useHashRoute() {
@@ -16,5 +17,10 @@ function useHashRoute() {
 export function App() {
   const hash = useHashRoute()
   const m = hash.match(/^#\/p\/([\w-]+)/)
-  return m ? <Editor key={m[1]} projectId={m[1]!} /> : <ProjectList />
+  return (
+    <>
+      {m ? <Editor key={m[1]} projectId={m[1]!} /> : <ProjectList />}
+      <SiteFooter />
+    </>
+  )
 }

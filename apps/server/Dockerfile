@@ -24,7 +24,12 @@ WORKDIR /app
 COPY --from=build /app/apps/server/dist/ /app/
 # Writable data directory for the file store (local runs without PostgreSQL).
 COPY --from=build --chown=65532:65532 /out/data /data
+# Passed by the reusable docker-container workflow; reported in /api/config for the footer.
+ARG APP_VERSION=
+ARG GIT_SHA=
 ENV NODE_ENV=production \
+    APP_VERSION=${APP_VERSION} \
+    GIT_SHA=${GIT_SHA} \
     PORT=8080 \
     ROMSLIG_DATA_DIR=/data/projects
 EXPOSE 8080

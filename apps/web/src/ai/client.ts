@@ -7,6 +7,8 @@ export type AiMode = 'byok' | 'server'
 export interface AppConfig {
   aiMode: AiMode
   user: { id: string; email: string | null; name: string | null; groups: string[] }
+  /** The API's own version (nulls when not built by CI, e.g. npm run dev). */
+  build?: { version: string | null; sha: string | null }
 }
 
 /** Where the user's own Anthropic key lives: this tab's session only, never localStorage. */

@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server'
-import { createApp } from './app.ts'
+import { buildInfoFromEnv, createApp } from './app.ts'
 import { authOptionsFromEnv } from './auth.ts'
 import { aiConfigFromEnv } from './ai/config.ts'
 import { openStore } from './storage/index.ts'
@@ -7,7 +7,7 @@ import { openStore } from './storage/index.ts'
 const authOpts = authOptionsFromEnv()
 const ai = aiConfigFromEnv()
 const store = await openStore(authOpts)
-const app = createApp(store, authOpts, { ai })
+const app = createApp(store, authOpts, { ai, build: buildInfoFromEnv() })
 console.log(
   `Auth: ${authOpts.mode}${authOpts.allowedGroup ? ', gruppe ' + authOpts.allowedGroup : ''} · lagring: ${process.env.PG_HOST ? 'postgres' : 'filer'} · AI: ${ai.mode}${ai.mode === 'server' && ai.group ? ', gruppe ' + ai.group : ''}`,
 )

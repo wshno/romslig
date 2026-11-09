@@ -9,6 +9,16 @@ import { aiProxy } from './ai/proxy.ts'
 
 type Env = { Variables: { user: User } }
 
+export interface BuildInfo {
+  version: string | null
+  sha: string | null
+}
+
+export const buildInfoFromEnv = (env: NodeJS.ProcessEnv = process.env): BuildInfo => ({
+  version: env.APP_VERSION || null,
+  sha: env.GIT_SHA || null,
+})
+
 async function readPlanUpload(image: File) {
   if (image.size > MAX_PLAN_BYTES) throw new HttpError(413, 'Plantegningen er for stor (maks 15 MB).')
   const png = new Uint8Array(await image.arrayBuffer())
@@ -20,6 +30,8 @@ const defaultPxPerMeter = (width: number, height: number) => Math.max(width, hei
 
 export interface AppOptions {
   ai?: AiConfig
+  /** Version of this build (APP_VERSION / GIT_SHA from the image), shown in the web footer. */
+  build?: BuildInfo
   /** Used by the AI proxy to reach Anthropic (tests inject a fake). */
   fetch?: typeof fetch
 }
@@ -30,6 +42,7 @@ export interface AppOptions {
  */
 export function createApp(store: ProjectStore, authOpts: AuthOptions, opts: AppOptions = {}) {
   const ai = opts.ai ?? aiConfigFromEnv({})
+  const build = opts.build ?? { version: null, sha: null }
   const app = new Hono<Env>().basePath('/api')
 
   app.onError((err, c) => {
@@ -49,7 +62,7 @@ export function createApp(store: ProjectStore, authOpts: AuthOptions, opts: AppO
   /** What the browser needs to start: the user's AI mode (never the key) and who they are. */
   app.get('/config', (c) => {
     const user = c.get('user')
-    return c.json({ aiMode: aiModeFor(ai, user), user })
+    return c.json({ aiMode: aiModeFor(ai, user), user, build })
   })
 
   app.route('/ai', aiProxy(ai, opts.fetch))
