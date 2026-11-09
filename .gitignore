@@ -4,3 +4,4 @@ data/projects/*
 !data/projects/.gitkeep
 .env
 .playwright-mcp/
+coverage/

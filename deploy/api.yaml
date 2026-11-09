@@ -1,0 +1,124 @@
+# Romslig API (Hono on Node, bundled by esbuild, on distroless). Stores projects in PostgreSQL.
+# Users are authenticated by the Authelia forward-auth Middleware on the HTTPRoute, which sets the
+# Remote-User/-Email/-Name/-Groups headers the API trusts (AUTH_MODE=forward). So the network
+# policies must let only Traefik reach this Service.
+#
+# ${VARS} are filled in by Flux postBuild substitution in the cluster repo; `${X:=d}` has a default.
+# Only substitute string values: kustomize drops the quotes, so a substituted number or boolean
+# comes out as a YAML int/bool and env values must be strings.
+# Every variable without a default must be listed in README.md (CI fails otherwise).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: romslig-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: romslig-api
+  template:
+    metadata:
+      labels:
+        app: romslig-api
+        app.kubernetes.io/name: romslig-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532 # the distroless image's `nonroot` user
+        fsGroup: 65532
+      containers:
+        - name: romslig-api
+          image: ghcr.io/wshno/romslig/api
+          # Releases pin tag@digest, so a cached image is always the right one.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          env:
+            - name: PORT
+              value: '8080'
+            - name: AUTH_MODE
+              value: forward
+            # Empty: everyone Authelia lets through may use the app. Otherwise the API also requires
+            # this group in Remote-Groups.
+            - name: ALLOWED_GROUP
+              value: '${ALLOWED_GROUP:=}'
+            - name: PG_HOST
+              value: '${PG_HOST}'
+            - name: PG_DB
+              value: '${PG_DB:=romslig}'
+            - name: PG_USER
+              value: '${PG_USER}'
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: '${PG_SECRET}'
+                  key: password
+            # byok: the browser calls Anthropic with the user's own key, which never reaches the API.
+            # server: the API proxies AI calls with its own key, for members of AI_GROUP if that is set.
+            - name: AI_MODE
+              value: '${AI_MODE:=byok}'
+            - name: AI_GROUP
+              value: '${AI_GROUP:=}'
+            # Optional, so byok runs without the Secret. The default name is never empty because an
+            # empty secretKeyRef name fails Pod validation even when optional.
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: '${AI_SECRET:=romslig-ai}'
+                  key: api-key
+                  optional: true
+            - name: OTEL_SERVICE_NAME
+              value: 'romslig-api'
+            # Empty leaves the SDK on its localhost default, i.e. exporting nowhere.
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: '${OTEL_EXPORTER_OTLP_ENDPOINT:=}'
+            # Tells test, production and previews apart in Loki/Prometheus (service_namespace).
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: 'service.namespace=$(POD_NAMESPACE),deployment.environment=${APP_ENVIRONMENT:=production}'
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: romslig-api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: romslig-api

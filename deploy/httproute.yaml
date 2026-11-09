@@ -1,0 +1,55 @@
+# One host: /api goes to the API, everything else to the SPA. Both rules run the Authelia
+# forward-auth Traefik Middleware, so nothing (not even the static files) is served before login,
+# and the API gets the Remote-* headers. The Middleware `authelia-forwardauth` must exist in the
+# target namespace (cluster repo). Attaches to the cluster's platform Gateway (listener `web`); the
+# target namespace must be allowed to attach routes and be granted the hostname. The gethomepage.dev
+# annotations are inert on clusters without homepage.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: romslig
+  annotations:
+    # Homepage otherwise derives the link from the first rule (/api); pin the web root.
+    gethomepage.dev/href: 'https://${APP_HOST}/'
+    gethomepage.dev/enabled: 'true'
+    gethomepage.dev/group: Apps
+    gethomepage.dev/name: '${HOMEPAGE_NAME:=Romslig}'
+    gethomepage.dev/siteMonitor: 'https://${APP_HOST}'
+    gethomepage.dev/icon: mdi-floor-plan
+    gethomepage.dev/description: Romslig, planlegging av renovering (API under /api/)
+    # Both Deployments back this host.
+    gethomepage.dev/pod-selector: app in (romslig-web, romslig-api)
+spec:
+  parentRefs:
+    - name: '${GATEWAY_NAME:=traefik}'
+      namespace: '${GATEWAY_NAMESPACE:=traefik}'
+      sectionName: '${GATEWAY_LISTENER:=web}'
+  hostnames:
+    - '${APP_HOST}'
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: authelia-forwardauth
+      backendRefs:
+        - name: romslig-api
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: authelia-forwardauth
+      backendRefs:
+        - name: romslig-web
+          port: 8080

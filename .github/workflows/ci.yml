@@ -1,0 +1,31 @@
+name: CI
+
+# Typecheck, build (web + server bundle), lint and tests with coverage for the whole npm workspace,
+# through the root scripts typecheck, build, lint:ci and coverage:ci.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types: [opened, reopened, labeled, synchronize, ready_for_review]
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  pr-build:
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+      packages: read
+    uses: hwinther/reusable-workflows/.github/workflows/pr-build.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    with:
+      node_enabled: true
+      node_version: '26.x'
+      node_working_directory: '.'
+      # The default (derived from the working directory) would be ^./, which matches nothing.
+      node_changes_regex: "^(apps|packages)/|^(package\\.json|package-lock\\.json|tsconfig\\.base\\.json|eslint\\.config\\.js|vitest\\.config\\.ts)$"

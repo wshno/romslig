@@ -33,6 +33,14 @@ Snarveier: Ctrl+Z / Ctrl+Y, Delete, Esc, Shift = fri vinkel ved tegning, dobbelt
 - `apps/server`: Hono-API, lagring i `data/projects/<id>/`, AI-digitalisering (`src/ai/digitize.ts`)
 - `apps/web`: React + Konva (2D) + react-three-fiber (3D)
 
+## Bygg og deploy
+
+- `npm run build` bygger web-appen (`apps/web/dist`) og pakker serveren til én fil (`apps/server/dist/server.mjs`).
+- To images bygges fra repo-roten: `apps/server/Dockerfile` (API på distroless Node) og `apps/web/Dockerfile` (SPA på `ghcr.io/wshno/static-server/server`). Begge lytter på 8080.
+- `deploy/` har Kubernetes-manifestene (Deployment, Service og HTTPRoute med Authelia forward auth). Variablene, hemmelighetene og hvordan de leveres til klyngen, står i [deploy/README.md](deploy/README.md).
+- `.github/workflows/`: `ci.yml` kjører typesjekk, bygg, lint og tester på pull requests. «Create release» lager en versjonstag, og `container.yml` bygger og signerer imagene og manifest-artefaktet `ghcr.io/wshno/romslig/manifests`.
+- Lokal ende-til-ende-stack med postgres, api, web og en nginx som etterligner Authelia: `docker compose -f docker-compose.e2e.yml up --build`, deretter http://localhost:5173 (innlogget som `e2e-user`).
+
 ## Veikart
 
 - [x] Fase 1: prosjekter, opplasting, kalibrering, 2D-editor (vegger, dører, vinduer, rom)
