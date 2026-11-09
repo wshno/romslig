@@ -1,0 +1,332 @@
+name: E2E
+
+# Every PR that touches the app: build the api, web and e2e images -> {Grype scans, Playwright e2e
+# against docker-compose.e2e.yml} in parallel.
+#
+# With the `deploy-feature` label, the images that passed are also pushed, this PR's deploy/ is
+# rendered into a signed manifest artifact pinned to them (ghcr.io/wshno/romslig/manifests:pr-<N>),
+# and an ephemeral preview env is deployed via GitOps: the per-PR overlay under
+# clusters/production/apps/previews/romslig in hwinther/proxmox, at romslig-<N>.preview.wsh.no
+# behind Authelia (group romslig-users). pr-preview-cleanup.yml removes it when the PR closes.
+#
+# On main, the images and manifests are pushed as main-<sha7> plus the moving `main`, which
+# nightly-preview.yml deploys and tests through the real edge every night.
+#
+# Needs the repo variable PROXMOX_GITOPS_CLIENT_ID and secret PROXMOX_GITOPS_APP_PRIVATE_KEY: the
+# GitHub App that may commit preview overlays to hwinther/proxmox.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types: [opened, reopened, labeled, synchronize, ready_for_review]
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.base.json'
+      - '.dockerignore'
+      - 'e2e/**'
+      - 'docker-compose.e2e.yml'
+      # A PR labelled deploy-feature previews its manifest changes.
+      - 'deploy/**'
+      - '.github/manifest-renders.txt'
+      - '.github/workflows/pr-e2e.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.base.json'
+      - '.dockerignore'
+      - 'e2e/**'
+      - 'docker-compose.e2e.yml'
+      - 'deploy/**'
+      - '.github/manifest-renders.txt'
+      - '.github/workflows/pr-e2e.yml'
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}'
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  # The tag for builds of main: main-<sha7>, pushed together with the moving `main`. Not GitVersion's
+  # version: on main that is the next release's, which the release would then overwrite. Runs on
+  # every event (it's cheap) so the push jobs can depend on it without being skipped on PRs.
+  main-tag:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: main-<sha7>
+        id: tag
+        run: echo "tag=main-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+  # One GitVersion run for all three images.
+  version:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    permissions:
+      contents: read
+    uses: hwinther/reusable-workflows/.github/workflows/gitversion.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+
+  # Both app Dockerfiles build from the repo root: npm ci needs the root lock file and every workspace.
+  api:
+    needs: [version]
+    permissions:
+      contents: read
+      packages: write
+    uses: hwinther/reusable-workflows/.github/workflows/build-image-docker.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      container_registry: ghcr.io
+      container_image_name_postfix: api
+      version: ${{ needs.version.outputs.version }}
+      image_tags: ${{ needs.version.outputs.image_tags }}
+      is_alpha: ${{ needs.version.outputs.is_alpha }}
+      build_context: .
+      dockerfile: apps/server/Dockerfile
+
+  web:
+    needs: [version]
+    permissions:
+      contents: read
+      packages: write
+    uses: hwinther/reusable-workflows/.github/workflows/build-image-docker.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      container_registry: ghcr.io
+      container_image_name_postfix: web
+      version: ${{ needs.version.outputs.version }}
+      image_tags: ${{ needs.version.outputs.image_tags }}
+      is_alpha: ${{ needs.version.outputs.is_alpha }}
+      build_context: .
+      dockerfile: apps/web/Dockerfile
+
+  # The @wshno/playwright-config version the e2e image builds on: the one e2e/'s lock file resolves,
+  # so the image's browser matches the suite's Playwright.
+  e2e-base:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      playwright_config: ${{ steps.lock.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: '@wshno/playwright-config from the lock file'
+        id: lock
+        run: |
+          set -euo pipefail
+          v=$(jq -r '.packages["node_modules/@wshno/playwright-config"].version' e2e/package-lock.json)
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::No @wshno/playwright-config version"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  # The test runner: e2e/'s specs and npm packages on @wshno/playwright-config's runner image, run
+  # below as the `playwright` service of docker-compose.e2e.yml, so e2e needs no Node or browsers on
+  # the runner.
+  e2e-image:
+    needs: [version, e2e-base]
+    permissions:
+      contents: read
+      packages: write
+    uses: hwinther/reusable-workflows/.github/workflows/build-image-docker.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      container_registry: ghcr.io
+      container_image_name_postfix: e2e
+      version: ${{ needs.version.outputs.version }}
+      image_tags: ${{ needs.version.outputs.image_tags }}
+      is_alpha: ${{ needs.version.outputs.is_alpha }}
+      build_context: e2e
+      dockerfile: e2e/Dockerfile
+      build_args: PLAYWRIGHT_CONFIG_VERSION=${{ needs.e2e-base.outputs.playwright_config }}
+
+  # The scans run next to e2e rather than before it. auto = report/SARIF/comment only on PRs.
+  api-scan:
+    needs: [api]
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      security-events: write
+      pull-requests: write
+    uses: hwinther/reusable-workflows/.github/workflows/scan-image.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      image: ${{ needs.api.outputs.image }}
+      container_image_name_postfix: api
+      grype_fail_build: auto
+
+  web-scan:
+    needs: [web]
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      security-events: write
+      pull-requests: write
+    uses: hwinther/reusable-workflows/.github/workflows/scan-image.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      image: ${{ needs.web.outputs.image }}
+      container_image_name_postfix: web
+      grype_fail_build: auto
+
+  # The whole suite against the compose stack (api + web + PostgreSQL behind a forward-auth stand-in),
+  # from the e2e image: the same `docker compose --profile e2e run --rm playwright` as locally.
+  e2e:
+    needs: [api, web, e2e-image]
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      pull-requests: write
+    uses: hwinther/reusable-workflows/.github/workflows/playwright-e2e.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      compose_file: docker-compose.e2e.yml
+      compose_playwright_service: playwright
+      compose_playwright_profile: e2e
+      playwright_working_directory: e2e
+      image_artifacts_json: |
+        {"API_IMAGE":"${{ needs.api.outputs.image }}",
+         "WEB_IMAGE":"${{ needs.web.outputs.image }}",
+         "E2E_IMAGE":"${{ needs.e2e-image.outputs.image }}"}
+
+  push-api:
+    needs: [main-tag, api, api-scan, e2e]
+    if: ${{ (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'deploy-feature')) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      actions: read
+    uses: hwinther/reusable-workflows/.github/workflows/image-push.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      container_registry: ghcr.io
+      container_image_name_postfix: api
+      artifact_name: ${{ needs.api.outputs.image }}
+      container_image_tags: ${{ github.event_name == 'push' && format('ghcr.io/wshno/romslig/api:{0},ghcr.io/wshno/romslig/api:main', needs.main-tag.outputs.tag) || needs.api.outputs.container_image_tags }}
+      image_digest: ${{ needs.api.outputs.image_digest }}
+      version: ${{ github.event_name == 'push' && needs.main-tag.outputs.tag || needs.api.outputs.version }}
+      sbom_artifact_name: ${{ needs.api-scan.outputs.sbom_artifact }}
+      grype_artifact_name: ${{ needs.api-scan.outputs.grype_artifact }}
+      sbom_cyclonedx_sha256: ${{ needs.api-scan.outputs.sbom_cyclonedx_sha256 }}
+      grype_json_sha256: ${{ needs.api-scan.outputs.grype_json_sha256 }}
+
+  push-web:
+    needs: [main-tag, web, web-scan, e2e]
+    if: ${{ (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'deploy-feature')) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      actions: read
+    uses: hwinther/reusable-workflows/.github/workflows/image-push.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      container_registry: ghcr.io
+      container_image_name_postfix: web
+      artifact_name: ${{ needs.web.outputs.image }}
+      container_image_tags: ${{ github.event_name == 'push' && format('ghcr.io/wshno/romslig/web:{0},ghcr.io/wshno/romslig/web:main', needs.main-tag.outputs.tag) || needs.web.outputs.container_image_tags }}
+      image_digest: ${{ needs.web.outputs.image_digest }}
+      version: ${{ github.event_name == 'push' && needs.main-tag.outputs.tag || needs.web.outputs.version }}
+      sbom_artifact_name: ${{ needs.web-scan.outputs.sbom_artifact }}
+      grype_artifact_name: ${{ needs.web-scan.outputs.grype_artifact }}
+      sbom_cyclonedx_sha256: ${{ needs.web-scan.outputs.sbom_cyclonedx_sha256 }}
+      grype_json_sha256: ${{ needs.web-scan.outputs.grype_json_sha256 }}
+
+  # Renders deploy/ like a release, with the two images that just landed in GHCR pinned to tag@digest,
+  # and pushes it as the signed artifact manifests:pr-<N> (a PR) or :main-<sha7> plus the moving :main
+  # (main, for the nightly preview). Signed in this job, so the identity is
+  # pr-e2e.yml@refs/pull/<N>/merge or pr-e2e.yml@refs/heads/main: the cluster's preview
+  # OCIRepository accepts only those, and production only container.yml at release tags.
+  manifests:
+    needs: [main-tag, api, web, push-api, push-web]
+    if: ${{ (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'deploy-feature')) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      TAG: ${{ github.event_name == 'push' && needs.main-tag.outputs.tag || format('pr-{0}', github.event.pull_request.number) }}
+    outputs:
+      tag: ${{ env.TAG }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Render, validate, push and sign
+        id: push
+        uses: hwinther/reusable-workflows/.github/actions/manifests@1fa5882e8aa1048af78492baf016f5a7b310be11 # v2.29.0
+        with:
+          mode: push
+          artifact: ghcr.io/wshno/romslig/manifests
+          tag: ${{ env.TAG }}
+          images: |
+            ghcr.io/wshno/romslig/api:${{ github.event_name == 'push' && needs.main-tag.outputs.tag || needs.api.outputs.version }}@${{ needs.push-api.outputs.image_digest }}
+            ghcr.io/wshno/romslig/web:${{ github.event_name == 'push' && needs.main-tag.outputs.tag || needs.web.outputs.version }}@${{ needs.push-web.outputs.image_digest }}
+          renders_file: .github/manifest-renders.txt
+
+      # The nightly preview deploys whatever :main points at. Same digest, so the signature made
+      # above covers it; flux and the registry login come from the step above.
+      - name: Move the main tag
+        if: github.event_name == 'push'
+        run: flux tag artifact "oci://ghcr.io/wshno/romslig/manifests:${TAG}" --tag main
+
+  # Commits the per-PR overlay to hwinther/proxmox (GitHub App token); Flux reconciles within ~1 min.
+  # Same `deploy-feature` gate as the push jobs, so a PR opts into push + deploy together.
+  deploy-preview:
+    needs: [manifests]
+    if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'deploy-feature') }}
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: hwinther/reusable-workflows/.github/workflows/gitops-preview-upsert.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      target_repo: hwinther/proxmox
+      preview_base_path: clusters/production/apps/previews/romslig
+      pr_number: ${{ github.event.pull_request.number }}
+      host: romslig-${{ github.event.pull_request.number }}.preview.wsh.no
+      app_name: romslig
+      # The preview template pins the manifest artifact (which pins the images), not the images.
+      image_tag: ${{ needs.manifests.outputs.tag }}
+      image_digest: ${{ needs.manifests.outputs.digest }}
+      client_id: ${{ vars.PROXMOX_GITOPS_CLIENT_ID }}
+    secrets:
+      app_private_key: ${{ secrets.PROXMOX_GITOPS_APP_PRIVATE_KEY }}
+
+  comment-preview-url:
+    needs: [deploy-preview, manifests]
+    if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'deploy-feature') }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post or update the preview-URL sticky comment
+        uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
+        with:
+          header: romslig-preview-env
+          message: |
+            ### Preview environment
+
+            Deployed via Flux (reconciles within ~1 min) from the signed manifest artifact
+            `manifests:${{ needs.manifests.outputs.tag }}` (this PR's `deploy/`), with the images that
+            just passed e2e + Grype pinned by digest.
+
+            - Preview URL: ${{ needs.deploy-preview.outputs.preview_url }} (Authelia, group `romslig-users`)
+            - Storage: the API's file store inside the pod, so projects are gone when the pod restarts
+              or the PR closes. No database, no AI key (byok).
+
+            Closing the PR removes the env via `pr-preview-cleanup.yml`.
