@@ -17,6 +17,7 @@ import { ROOM_COLORS, ROOM_LABELS, fmtM, fmtM2 } from '../theme.ts'
 import { FurnitureCatalog, FurnitureList, FurnitureProps } from './FurniturePanel.tsx'
 import { AssistantPanel, NotesList } from './AssistantPanel.tsx'
 import { RecognizePanel } from './RecognizePanel.tsx'
+import { CeilingProps, FixtureProps, InstallationsOverview, RunProps } from './InstallationsPanel.tsx'
 
 export function Inspector() {
   const project = useStore((s) => s.project)!
@@ -34,6 +35,16 @@ export function Inspector() {
   else if (opening) content = <OpeningProps o={opening} />
   else if (room) content = <RoomProps room={room} />
   else if (furniture) content = <FurnitureProps item={furniture} />
+  else if (selection?.kind === 'fixture') {
+    const fx = scenario.fixtures.find((x) => x.id === selection.id)
+    if (fx) content = <FixtureProps fx={fx} />
+  } else if (selection?.kind === 'run') {
+    const run = scenario.runs.find((x) => x.id === selection.id)
+    if (run) content = <RunProps run={run} />
+  } else if (selection?.kind === 'ceiling') {
+    const c = scenario.loweredCeilings.find((x) => x.id === selection.id)
+    if (c) content = <CeilingProps ceiling={c} />
+  }
   return (
     <aside className="inspector">
       {!selection && (
@@ -315,6 +326,10 @@ function Overview() {
           <NotesList />
         </section>
       )}
+      <section>
+        <h4>4. Installasjoner</h4>
+        <InstallationsOverview />
+      </section>
       <section>
         <h4>Innstillinger</h4>
         <Num

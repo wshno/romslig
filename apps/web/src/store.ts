@@ -11,6 +11,15 @@ import {
   type ChatMessage,
   type DigitizeSuggestion,
   type FurnitureItem,
+  type Fixture,
+  type FixtureKind,
+  type LoweredCeiling,
+  type Run,
+  type RunKind,
+  type RunPlacement,
+  FIXTURE_INFO,
+  RUN_INFO,
+  defaultRunHeight,
   type Opening,
   type Note,
   type OpeningKind,
@@ -21,10 +30,14 @@ import {
   type Wall,
 } from '@romslig/shared'
 
-export type Tool = 'select' | 'wall' | 'door' | 'window' | 'opening' | 'room' | 'calibrate'
+export type Tool =
+  'select' | 'wall' | 'door' | 'window' | 'opening' | 'room' | 'calibrate' | 'fixture' | 'run' | 'ceiling'
 export type ViewMode = '2d' | '3d' | 'split' | 'compare'
 export type InspectorTab = 'oversikt' | 'moebler' | 'assistent'
-export type Selection = { kind: 'wall' | 'opening' | 'room' | 'furniture'; id: string } | null
+export type Selection = {
+  kind: 'wall' | 'opening' | 'room' | 'furniture' | 'fixture' | 'run' | 'ceiling'
+  id: string
+} | null
 
 interface State {
   project: Project | null
@@ -37,12 +50,26 @@ interface State {
   dragging3d: boolean
   /** Wall thickness used by the wall tool */
   wallThickness: number
+  /** Settings for the installation tools */
+  fixtureKind: FixtureKind
+  runKind: RunKind
+  runPlacement: RunPlacement
+  showInstallations: boolean
 
   load(p: Project): void
   setTool(t: Tool): void
   setView(v: ViewMode): void
   select(s: Selection): void
   setWallThickness(t: number): void
+  setInstallationSettings(
+    patch: Partial<Pick<State, 'fixtureKind' | 'runKind' | 'runPlacement' | 'showInstallations'>>,
+  ): void
+  addFixture(kind: FixtureKind, at: Vec2, wallId: string | null): void
+  updateFixture(id: string, patch: Partial<Fixture>): void
+  addRun(points: Vec2[]): void
+  updateRun(id: string, patch: Partial<Run>): void
+  addLoweredCeiling(polygon: Vec2[]): void
+  updateLoweredCeiling(id: string, patch: Partial<LoweredCeiling>): void
   updateProject(fn: (p: Project) => Project): void
   updateScenario(fn: (s: Scenario) => Scenario): void
 
@@ -103,12 +130,62 @@ export const useStore = create<State>()(
       dragging3d: false,
       inspectorTab: 'oversikt',
       wallThickness: DEFAULTS.interiorWallThickness,
+      fixtureKind: 'outlet',
+      runKind: 'water_cold',
+      runPlacement: 'wall',
+      showInstallations: true,
 
       load: (p) => set({ project: p, selection: null, suggestion: null, tool: 'select' }),
       setTool: (tool) => set({ tool }),
       setView: (view) => set({ view }),
       select: (selection) => set({ selection }),
       setWallThickness: (wallThickness) => set({ wallThickness }),
+      setInstallationSettings: (patch) => set(patch),
+
+      addFixture: (kind, at, wallId) => {
+        const p = get().project!
+        const info = FIXTURE_INFO[kind]
+        const z = kind === 'ceiling_light' ? p.ceilingHeight : info.height
+        const fx: Fixture = { id: newId('fx_'), kind, x: at.x, y: at.y, z, wallId, label: null, note: null }
+        get().updateScenario((s) => ({ ...s, fixtures: [...s.fixtures, fx] }))
+      },
+      updateFixture: (id, patch) =>
+        get().updateScenario((s) => ({
+          ...s,
+          fixtures: s.fixtures.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+        })),
+      addRun: (points) => {
+        const { runKind, runPlacement, project } = get()
+        const run: Run = {
+          id: newId('run_'),
+          kind: runKind,
+          placement: runPlacement,
+          points,
+          z: defaultRunHeight(runPlacement, project!.ceilingHeight),
+          diameter: RUN_INFO[runKind].diameter,
+          label: null,
+          note: null,
+        }
+        get().updateScenario((s) => ({ ...s, runs: [...s.runs, run] }))
+        set({ selection: { kind: 'run', id: run.id } })
+      },
+      updateRun: (id, patch) =>
+        get().updateScenario((s) => ({ ...s, runs: s.runs.map((r) => (r.id === id ? { ...r, ...patch } : r)) })),
+      addLoweredCeiling: (polygon) => {
+        const c: LoweredCeiling = {
+          id: newId('lc_'),
+          polygon,
+          height: Math.max(1.9, get().project!.ceilingHeight - 0.3),
+          label: null,
+        }
+        get().updateScenario((s) => ({ ...s, loweredCeilings: [...s.loweredCeilings, c] }))
+        set({ selection: { kind: 'ceiling', id: c.id } })
+      },
+      updateLoweredCeiling: (id, patch) =>
+        get().updateScenario((s) => ({
+          ...s,
+          loweredCeilings: s.loweredCeilings.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+        })),
 
       updateProject: (fn) => {
         const p = get().project
@@ -219,6 +296,9 @@ export const useStore = create<State>()(
         if (!sel) return
         get().updateScenario((s) => {
           if (sel.kind === 'furniture') return { ...s, furniture: s.furniture.filter((f) => f.id !== sel.id) }
+          if (sel.kind === 'fixture') return { ...s, fixtures: s.fixtures.filter((x) => x.id !== sel.id) }
+          if (sel.kind === 'run') return { ...s, runs: s.runs.filter((r) => r.id !== sel.id) }
+          if (sel.kind === 'ceiling') return { ...s, loweredCeilings: s.loweredCeilings.filter((c) => c.id !== sel.id) }
           if (sel.kind === 'wall')
             return {
               ...s,
@@ -256,6 +336,9 @@ export const useStore = create<State>()(
               openings: s.openings.map((o) => ({ ...o, offset: o.offset * k, width: o.width * k })),
               rooms: s.rooms.map((r) => ({ ...r, polygon: r.polygon.map((v) => scaleVec(v, k)) })),
               furniture: s.furniture.map((f) => ({ ...f, x: f.x * k, y: f.y * k })),
+              fixtures: s.fixtures.map((x) => ({ ...x, x: x.x * k, y: x.y * k })),
+              runs: s.runs.map((r) => ({ ...r, points: r.points.map((v) => scaleVec(v, k)) })),
+              loweredCeilings: s.loweredCeilings.map((c) => ({ ...c, polygon: c.polygon.map((v) => scaleVec(v, k)) })),
             })),
           },
         })
@@ -359,7 +442,19 @@ if (import.meta.env.DEV) (window as unknown as { __romslig: unknown }).__romslig
 // Keep the editor state when Vite hot-replaces this module (e.g. after an edit in packages/shared),
 // instead of falling back to an empty store that shows «Laster prosjekt…» until a reload.
 if (import.meta.hot) {
-  const keep = ['project', 'tool', 'view', 'selection', 'suggestion', 'wallThickness', 'inspectorTab'] as const
+  const keep = [
+    'project',
+    'tool',
+    'view',
+    'selection',
+    'suggestion',
+    'wallThickness',
+    'inspectorTab',
+    'fixtureKind',
+    'runKind',
+    'runPlacement',
+    'showInstallations',
+  ] as const
   const prev = import.meta.hot.data.state as Partial<State> | undefined
   if (prev) useStore.setState(prev)
   import.meta.hot.dispose((data) => {

@@ -7,6 +7,7 @@ import { useScenario, useStore } from '../store.ts'
 import { useFurnitureIssues } from '../hooks.ts'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
 import { Furniture3D } from './Furniture3D.tsx'
+import { Installations3D } from './Installations3D.tsx'
 
 /** Converts a screen position to a point on the floor; set by <FloorPicker> inside the canvas. */
 type FloorPick = (clientX: number, clientY: number) => { x: number; y: number } | null
@@ -22,6 +23,8 @@ export function Viewer3D() {
   const issues = useFurnitureIssues()
   const selectedId = useStore((s) => s.selection?.id)
   const dragging3d = useStore((s) => s.dragging3d)
+  const showInstallations = useStore((s) => s.showInstallations)
+  const ceilingHeight = useStore((s) => s.project?.ceilingHeight ?? 2.4)
   const pickRef = useRef<FloorPick | null>(null)
 
   const bounds = useMemo(() => {
@@ -78,6 +81,7 @@ export function Viewer3D() {
           <Floor key={r.id} room={r} />
         ))}
         <FloorPicker pickRef={pickRef} />
+        {showInstallations && <Installations3D scenario={scenario} ceilingHeight={ceilingHeight} />}
         {scenario.furniture.map((f) => (
           <Furniture3D key={f.id} item={f} hasIssues={issues.has(f.id)} selected={selectedId === f.id} />
         ))}
@@ -134,6 +138,13 @@ export function Viewer3D() {
           title="Marker vegger merket som bærende"
         >
           Bærevegger
+        </button>
+        <button
+          className={showInstallations ? 'active' : ''}
+          onClick={() => useStore.getState().setInstallationSettings({ showInstallations: !showInstallations })}
+          title="Vis stikkontakter, rør, kanaler og nedforet tak"
+        >
+          Installasjoner
         </button>
       </div>
       {mode === 'walk' && (

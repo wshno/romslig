@@ -23,6 +23,8 @@ npm test
 7. **Assistent**: still spørsmål eller be om forslag. Konkrete forslag lages som nye varianter.
 8. **Varianter**: kopier «Eksisterende» og prøv endringer (f.eks. riv en vegg) uten å røre originalen.
 
+**Installasjoner**: verktøyene Punkt (P), Føring (F) og Himling (H). Sammenligning og assistent advarer når vegger med installasjoner endres.
+
 Snarveier: Ctrl+Z / Ctrl+Y, Delete, Esc, Shift = fri vinkel ved tegning, dobbeltklikk avslutter vegg.
 
 ## Struktur
@@ -40,6 +42,6 @@ Snarveier: Ctrl+Z / Ctrl+Y, Delete, Esc, Shift = fri vinkel ved tegning, dobbelt
 - [x] Fase 5: AI-assistent (chat) som svarer på spørsmål og lager forslag til møblering og veggendringer som egne varianter, med advarsler om bærevegg, våtrom og yttervegg
 - [x] Gjenkjenne eksisterende møbler fra bilder av rommene (AI) og legge dem inn mot riktig vegg
 - [x] Sammenligne to varianter side om side, med oversikt over forskjeller
-- [ ] Tekniske installasjoner: stikkontakter på vegger, vannrør og luftekanaler i vegger, himling og nedforet tak
+- [x] Tekniske installasjoner: stikkontakter, brytere, lys, sikringsskap (også utenfor leiligheten), vanninntak og hovedkran, sluk, ventiler, rør/kanaler/kabler i vegg, gulv, himling og nedforet tak
 
 > Riving eller flytting av vegger må alltid vurderes av fagperson (RIB). Appen gir forslag, ikke byggteknisk godkjenning.

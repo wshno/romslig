@@ -2,6 +2,7 @@ import { getCatalogItem } from './catalog.ts'
 import { furnitureIssues, roomAt } from './furniture.ts'
 import { add, dist, mul, polygonArea, wallDir, wallLength } from './geometry.ts'
 import type { Opening, Scenario, Wall } from './model.ts'
+import { FIXTURE_INFO, PROFESSIONALS, RUN_INFO, describeInstallations, installationsInWall } from './installations.ts'
 
 export interface RoomChange {
   id: string
@@ -12,6 +13,7 @@ export interface RoomChange {
 }
 
 export interface ScenarioComparison {
+  installations: { added: number; removed: number; moved: number }
   walls: { removed: Wall[]; added: Wall[]; moved: Wall[] }
   openings: { removed: Opening[]; added: Opening[]; resized: Opening[] }
   rooms: RoomChange[]
@@ -88,6 +90,18 @@ export function compareScenarios(a: Scenario, b: Scenario): ScenarioComparison {
     else if (w.loadBearing === 'unknown')
       flags.add('Det er ukjent om en fjernet eller flyttet vegg er bærende: må avklares med RIB.')
     if (w.exterior) flags.add('Yttervegg er endret: krever normalt byggesøknad og samtykke fra sameiet/borettslaget.')
+    const inst = installationsInWall(a, w)
+    if (inst.fixtures.length || inst.runs.length) {
+      const pros = [
+        ...new Set([
+          ...inst.fixtures.map((x) => FIXTURE_INFO[x.kind].category),
+          ...inst.runs.map((r) => RUN_INFO[r.kind].category),
+        ]),
+      ]
+      flags.add(
+        `En fjernet eller flyttet vegg har ${describeInstallations(inst)}: må flyttes av ${pros.map((c) => PROFESSIONALS[c]).join(' og ')}.`,
+      )
+    }
   }
   for (const w of [...removed, ...added, ...moved]) {
     const wet = [...roomsBeside(a, w), ...roomsBeside(b, w)].filter((r) => WET.has(r.type))
@@ -111,7 +125,21 @@ export function compareScenarios(a: Scenario, b: Scenario): ScenarioComparison {
     rooms,
     furniture,
     problems: { before: furnitureIssues(a).size, after: furnitureIssues(b).size },
+    installations: installationChanges(a, b),
     flags: [...flags],
     totalArea: { before: totalArea(a), after: totalArea(b) },
+  }
+}
+
+/** Counts of fixtures, runs and lowered ceilings added, removed or moved. */
+function installationChanges(a: Scenario, b: Scenario) {
+  const key = (x: unknown) => JSON.stringify(x)
+  const all = (s: Scenario) => [...s.fixtures, ...s.runs, ...s.loweredCeilings] as { id: string }[]
+  const before = new Map(all(a).map((x) => [x.id, key(x)]))
+  const after = new Map(all(b).map((x) => [x.id, key(x)]))
+  return {
+    added: [...after.keys()].filter((id) => !before.has(id)).length,
+    removed: [...before.keys()].filter((id) => !after.has(id)).length,
+    moved: [...after].filter(([id, k]) => before.has(id) && before.get(id) !== k).length,
   }
 }

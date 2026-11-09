@@ -1,5 +1,7 @@
 import {
   CATALOG,
+  FIXTURE_INFO,
+  RUN_INFO,
   add,
   clampOpening,
   describeFurnitureIssue,
@@ -152,6 +154,34 @@ export class Workspace {
         })),
       ),
       notes: s.notes.map((n) => ({ room_id: n.roomId, text: n.text })),
+      installations: {
+        fixtures: s.fixtures.map((x) => ({
+          id: x.id,
+          kind: x.kind,
+          name: x.label ?? FIXTURE_INFO[x.kind].name,
+          position: pt(x),
+          height: r2(x.z),
+          wall_id: x.wallId,
+          room_id: roomAt(x, s.rooms)?.id ?? null,
+          note: x.note,
+        })),
+        runs: s.runs.map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          name: r.label ?? RUN_INFO[r.kind].name,
+          placement: r.placement,
+          points: r.points.map(pt),
+          height: r2(r.z),
+          diameter_mm: Math.round(r.diameter * 1000),
+          note: r.note,
+        })),
+        lowered_ceilings: s.loweredCeilings.map((c) => ({
+          id: c.id,
+          height: c.height,
+          polygon: c.polygon.map(pt),
+          label: c.label,
+        })),
+      },
     }
   }
 }

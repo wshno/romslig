@@ -14,6 +14,11 @@ import {
   type Scenario,
   type Wall,
   DEFAULTS,
+  FIXTURE_INFO,
+  PROFESSIONALS,
+  RUN_INFO,
+  describeInstallations,
+  installationsInWall,
 } from '@romslig/shared'
 import { WET_ROOMS, type Workspace } from './workspace.ts'
 
@@ -262,6 +267,18 @@ export function buildTools(ws: Workspace, activity: (text: string) => void) {
           warnings.add(
             `Endringen berører våtrom (${wet.map((r) => r!.name).join(', ')}): arbeid må utføres av fagfolk etter TEK17 og våtromsnormen, med dokumentasjon.`,
           )
+        const inst = installationsInWall(s, w)
+        if (inst.fixtures.length || inst.runs.length) {
+          const pros = [
+            ...new Set([
+              ...inst.fixtures.map((x) => FIXTURE_INFO[x.kind].category),
+              ...inst.runs.map((r) => RUN_INFO[r.kind].category),
+            ]),
+          ]
+          warnings.add(
+            `Veggen som ${verb} har ${describeInstallations(inst)}: dette må flyttes eller legges om av ${pros.map((c) => PROFESSIONALS[c]).join(' og ')}, og øker kostnaden.`,
+          )
+        }
       }
       for (const c of changes) {
         switch (c.action) {

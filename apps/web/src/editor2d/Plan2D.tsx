@@ -5,6 +5,7 @@ import type { KonvaEventObject } from 'konva/lib/Node'
 import {
   add,
   areaDeviation,
+  RUN_INFO,
   furnitureIssues,
   clampOpening,
   dist,
@@ -28,6 +29,8 @@ import {
 import { api } from '../api.ts'
 import { activeScenario, beginGesture, endGesture, useStore } from '../store.ts'
 import { Furniture2D } from './Furniture2D.tsx'
+import { Installations2D } from './Installations2D.tsx'
+import { fixturePlacement } from './installationUtils.ts'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
 import { ROOM_COLORS, fmtM, fmtM2 } from '../theme.ts'
 
@@ -171,8 +174,9 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
       const r = snapPoint(p, { walls, anchor, tolerance: tol, ortho: !shiftRef.current })
       return { p: r.point, kind: r.kind }
     }
-    if (tool === 'room') {
-      if (roomPts.length >= 3 && dist(p, roomPts[0]!) < tol) return { p: roomPts[0]!, kind: 'endpoint' }
+    if (tool === 'room' || tool === 'ceiling' || tool === 'run') {
+      if (tool !== 'run' && roomPts.length >= 3 && dist(p, roomPts[0]!) < tol)
+        return { p: roomPts[0]!, kind: 'endpoint' }
       const r = snapPoint(p, { walls, anchor: roomPts.at(-1), tolerance: tol, ortho: !shiftRef.current })
       return { p: r.point, kind: r.kind }
     }
@@ -194,7 +198,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
       Math.hypot(e.evt.clientX - lastClickRef.current.x, e.evt.clientY - lastClickRef.current.y) < 6
     const wasDouble = lastClickRef.current.double
     lastClickRef.current = { t: now, x: e.evt.clientX, y: e.evt.clientY, double: sameSpot && !wasDouble }
-    if (sameSpot && (tool === 'wall' || tool === 'room')) {
+    if (sameSpot && (tool === 'wall' || tool === 'room' || tool === 'run' || tool === 'ceiling')) {
       // 2nd click finishes the chain; a 3rd quick click on the same spot is ignored
       if (!wasDouble) endChain()
       return
@@ -216,11 +220,21 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
         break
       }
       case 'room':
+      case 'ceiling':
         if (roomPts.length >= 3 && dist(p, roomPts[0]!) < 1e-6) {
-          addRoom(roomPts)
+          if (tool === 'room') addRoom(roomPts)
+          else useStore.getState().addLoweredCeiling(roomPts)
           setRoomPts([])
         } else setRoomPts([...roomPts, p])
         break
+      case 'run':
+        if (!roomPts.length || dist(p, roomPts.at(-1)!) > 0.02) setRoomPts([...roomPts, p])
+        break
+      case 'fixture': {
+        const placed = fixturePlacement(raw, walls, tol * 2, store.fixtureKind)
+        useStore.getState().addFixture(store.fixtureKind, placed.point, placed.wallId)
+        break
+      }
       case 'calibrate': {
         const pts = [...calPts, raw]
         if (pts.length < 2) return setCalPts(pts)
@@ -240,10 +254,10 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
 
   const endChain = () => {
     setAnchor(null)
-    if (tool === 'room' && roomPts.length >= 3) {
-      addRoom(roomPts)
-      setRoomPts([])
-    }
+    if (tool === 'room' && roomPts.length >= 3) addRoom(roomPts)
+    if (tool === 'ceiling' && roomPts.length >= 3) useStore.getState().addLoweredCeiling(roomPts)
+    if (tool === 'run' && roomPts.length >= 2) useStore.getState().addRun(roomPts)
+    setRoomPts([])
   }
 
   const onWheel = (e: KonvaEventObject<WheelEvent>) => {
@@ -366,6 +380,9 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                 shiftRef={shiftRef}
               />
             ))}
+            {store.showInstallations && (
+              <Installations2D scenario={scenario} scale={scale} interactive={interactive} selection={selection} />
+            )}
             {showDims && scenario.rooms.map((r) => <RoomEdgeLengths key={`dim-${r.id}`} room={r} scale={scale} />)}
             {selectedWall && (
               <WallHandles
@@ -395,10 +412,10 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                 />
               </>
             )}
-            {tool === 'room' && roomPts.length > 0 && (
+            {(tool === 'room' || tool === 'ceiling' || tool === 'run') && roomPts.length > 0 && (
               <Line
                 points={[...roomPts, ...(cursor ? [cursor.p] : [])].flatMap((p) => [p.x, p.y])}
-                stroke="#7c3aed"
+                stroke={tool === 'run' ? RUN_INFO[store.runKind].color : '#7c3aed'}
                 strokeWidth={2}
                 strokeScaleEnabled={false}
               />
@@ -438,6 +455,13 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
         >
           Mål
         </button>
+        <button
+          className={store.showInstallations ? 'active' : ''}
+          onClick={() => store.setInstallationSettings({ showInstallations: !store.showInstallations })}
+          title="Vis stikkontakter, rør, kanaler og nedforet tak"
+        >
+          Installasjoner
+        </button>
         <button onClick={() => setManualView(null)} title="Tilpass visning">
           ⤢
         </button>
@@ -456,6 +480,9 @@ const HINTS: Record<string, string> = {
   opening: 'Klikk på en vegg for å sette inn en åpning.',
   room: 'Klikk hjørnene i rommet. Klikk på første punkt for å lukke.',
   calibrate: 'Klikk to punkter med kjent avstand (f.eks. en målsatt vegg).',
+  fixture: 'Klikk for å plassere. Nær en vegg festes punktet på veggflaten på den siden du klikker.',
+  run: 'Klikk punktene langs føringen. Dobbeltklikk eller høyreklikk avslutter. Shift = fri vinkel.',
+  ceiling: 'Klikk hjørnene i det nedforede området. Klikk på første punkt for å lukke.',
 }
 
 function Grid({ w, h }: { w: number; h: number }) {

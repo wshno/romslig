@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { Fixture, LoweredCeiling, Run } from './installations.ts'
 
 /** All coordinates and lengths are in meters, in plan space (x right, y down). */
 export const Vec2 = z.object({ x: z.number(), y: z.number() })
@@ -98,6 +99,9 @@ export const Scenario = z.object({
   rooms: z.array(Room).default([]),
   furniture: z.array(FurnitureItem).default([]),
   notes: z.array(Note).default([]),
+  fixtures: z.array(Fixture).default([]),
+  runs: z.array(Run).default([]),
+  loweredCeilings: z.array(LoweredCeiling).default([]),
 })
 export type Scenario = z.infer<typeof Scenario>
 
@@ -153,7 +157,19 @@ export function newId(prefix = ''): string {
 }
 
 export function emptyScenario(name = 'Eksisterende'): Scenario {
-  return { id: newId('sc_'), name, parentId: null, walls: [], openings: [], rooms: [], furniture: [], notes: [] }
+  return {
+    id: newId('sc_'),
+    name,
+    parentId: null,
+    walls: [],
+    openings: [],
+    rooms: [],
+    furniture: [],
+    notes: [],
+    fixtures: [],
+    runs: [],
+    loweredCeilings: [],
+  }
 }
 
 /** Result of AI digitization: a proposal the user reviews before it replaces the scenario geometry. */

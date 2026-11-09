@@ -5,6 +5,17 @@ import { Viewer3D } from '../viewer3d/Viewer3D.tsx'
 import { activeScenario, redo, undo, useStore, type Tool, type ViewMode } from '../store.ts'
 import { Inspector } from './Inspector.tsx'
 import { CompareView } from './CompareView.tsx'
+import {
+  FIXTURE_INFO,
+  FIXTURE_KINDS,
+  PLACEMENT_LABELS,
+  RUN_INFO,
+  RUN_KINDS,
+  RUN_PLACEMENTS,
+  type FixtureKind,
+  type RunKind,
+  type RunPlacement,
+} from '@romslig/shared'
 
 const TOOLS: { id: Tool; label: string; icon: string; key: string }[] = [
   { id: 'select', label: 'Velg', icon: '↖', key: 'v' },
@@ -14,6 +25,9 @@ const TOOLS: { id: Tool; label: string; icon: string; key: string }[] = [
   { id: 'opening', label: 'Åpning', icon: '⬚', key: 'o' },
   { id: 'room', label: 'Rom', icon: '⬠', key: 'r' },
   { id: 'calibrate', label: 'Kalibrer', icon: '📏', key: 'k' },
+  { id: 'fixture', label: 'Punkt', icon: '🔌', key: 'p' },
+  { id: 'run', label: 'Føring', icon: '〰', key: 'f' },
+  { id: 'ceiling', label: 'Himling', icon: '▥', key: 'h' },
 ]
 
 type SaveState = 'saved' | 'saving' | 'error'
@@ -215,6 +229,10 @@ function TopBar({ save }: { save: SaveState }) {
 function Toolbar() {
   const tool = useStore((s) => s.tool)
   const thickness = useStore((s) => s.wallThickness)
+  const fixtureKind = useStore((s) => s.fixtureKind)
+  const runKind = useStore((s) => s.runKind)
+  const runPlacement = useStore((s) => s.runPlacement)
+  const setInstallationSettings = useStore((s) => s.setInstallationSettings)
   const { setTool, setWallThickness } = useStore.getState()
   return (
     <nav className="toolbar">
@@ -241,6 +259,48 @@ function Toolbar() {
             <option value={0.3}>30 cm</option>
           </select>
         </label>
+      )}
+      {tool === 'fixture' && (
+        <label className="thickness" title="Type punkt">
+          Type
+          <select
+            value={fixtureKind}
+            onChange={(e) => setInstallationSettings({ fixtureKind: e.target.value as FixtureKind })}
+          >
+            {FIXTURE_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {FIXTURE_INFO[k].name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {tool === 'run' && (
+        <>
+          <label className="thickness" title="Type føring">
+            Type
+            <select value={runKind} onChange={(e) => setInstallationSettings({ runKind: e.target.value as RunKind })}>
+              {RUN_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {RUN_INFO[k].name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="thickness" title="Hvor føringen ligger">
+            Ligger
+            <select
+              value={runPlacement}
+              onChange={(e) => setInstallationSettings({ runPlacement: e.target.value as RunPlacement })}
+            >
+              {RUN_PLACEMENTS.map((k) => (
+                <option key={k} value={k}>
+                  {PLACEMENT_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
       )}
     </nav>
   )

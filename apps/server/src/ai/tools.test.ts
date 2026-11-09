@@ -130,3 +130,37 @@ describe('assistant tools', () => {
     expect(ws.get(scenario_id).notes.map((n) => n.text)).toEqual(['Eik'])
   })
 })
+
+describe('assistant tools and installations', () => {
+  it('warns that a removed wall carries an outlet and a drain', async () => {
+    const p = project()
+    const s = p.scenarios[0]!
+    p.scenarios[0] = {
+      ...s,
+      fixtures: [{ id: 'o', kind: 'outlet_double', x: 3.95, y: 2, z: 0.3, wallId: 'mid', label: null, note: null }],
+      runs: [
+        {
+          id: 'd',
+          kind: 'drain',
+          placement: 'wall',
+          points: [v(4, 0.5), v(4, 3.5)],
+          z: 0.1,
+          diameter: 0.11,
+          label: null,
+          note: null,
+        },
+      ],
+    }
+    const ws = new Workspace(p)
+    const tools = Object.fromEntries(buildTools(ws, () => {}).map((t) => [t.name, t]))
+    const call = async (name: string, input: unknown) => JSON.parse((await tools[name]!.run(input as never)) as string)
+    const { scenario_id } = await call('create_variant', { name: 'X', base_scenario_id: null })
+    const res = await call('modify_walls', { scenario_id, changes: [{ action: 'remove_wall', wall_id: 'mid' }] })
+    const text = res.warnings.join(' ')
+    expect(text).toMatch(/dobbel stikkontakt/)
+    expect(text).toMatch(/avløp/)
+    expect(text).toMatch(/elektriker.*rørlegger|rørlegger.*elektriker/)
+    const view = await call('view_variant', { scenario_id: p.activeScenarioId })
+    expect(view.installations.fixtures[0].name).toBe('Dobbel stikkontakt')
+  })
+})

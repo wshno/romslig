@@ -69,3 +69,32 @@ describe('compareScenarios', () => {
     expect(c.furniture).toEqual({ added: ['Lenestol'], removed: [], moved: ['Min sofa'] })
   })
 })
+
+describe('compareScenarios with installations', () => {
+  it('flags removing a wall that has an outlet and a water pipe', () => {
+    const a: Scenario = {
+      ...base(),
+      fixtures: [{ id: 'o1', kind: 'outlet', x: 3.05, y: 1, z: 0.3, wallId: 'm', label: null, note: null }],
+      runs: [
+        {
+          id: 'p1',
+          kind: 'water_cold',
+          placement: 'wall',
+          points: [v(3, 0.2), v(3, 2.5)],
+          z: 0.3,
+          diameter: 0.02,
+          label: null,
+          note: null,
+        },
+      ],
+    }
+    const b = redetectRooms({ ...structuredClone(a), walls: a.walls.filter((w) => w.id !== 'm') })
+    const c = compareScenarios(a, b)
+    const text = c.flags.join(' ')
+    expect(text).toMatch(/stikkontakt/)
+    expect(text).toMatch(/kaldtvann/)
+    expect(text).toMatch(/elektriker/)
+    expect(text).toMatch(/rørlegger/)
+    expect(c.installations).toEqual({ added: 0, removed: 0, moved: 0 })
+  })
+})
