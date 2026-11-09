@@ -12,7 +12,7 @@ import {
   type RecognizeResult,
   type RecognizedItem,
 } from '@romslig/shared'
-import { HttpError } from '../storage.ts'
+import { HttpError } from '../errors.ts'
 import { MODEL, anthropic, explainApiError } from './client.ts'
 import { catalogText } from './workspace.ts'
 

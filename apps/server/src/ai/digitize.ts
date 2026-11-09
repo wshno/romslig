@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
 import { z } from 'zod'
 import sharp from 'sharp'
 import {
@@ -19,7 +17,7 @@ import {
   type Room,
   type Wall,
 } from '@romslig/shared'
-import { HttpError, projectDir } from '../storage.ts'
+import { HttpError } from '../errors.ts'
 import { MODEL, anthropic, explainApiError } from './client.ts'
 
 /** What Claude returns, in pixel coordinates of the image it was shown. */
@@ -81,10 +79,8 @@ Regler:
 - Ikke ta med møbler, sanitærutstyr, tekst eller skravur som vegger.
 - notes: kort på norsk om usikkerhet (f.eks. utydelige vegger, mulig bærevegg-markering).`
 
-export async function digitizeProject(project: Project): Promise<DigitizeSuggestion> {
+export async function digitizeProject(project: Project, original: Uint8Array): Promise<DigitizeSuggestion> {
   if (!project.planImage) throw new HttpError(400, 'Prosjektet har ingen plantegning')
-  const file = path.join(projectDir(project.id), project.planImage.file)
-  const original = await readFile(file)
   const { width: W, height: H } = project.planImage
   const f = Math.min(1, MAX_EDGE / Math.max(W, H)) // scaled = original * f
   const img = await sharp(original)

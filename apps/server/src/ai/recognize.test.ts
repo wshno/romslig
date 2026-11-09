@@ -35,6 +35,7 @@ describe('buildDescription', () => {
       scenarios: [s],
       activeScenarioId: s.id,
       chat: [],
+      version: 0,
       createdAt: '',
       updatedAt: '',
     }

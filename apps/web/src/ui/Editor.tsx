@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../api.ts'
+import { ApiError, api } from '../api.ts'
 import { Plan2D } from '../editor2d/Plan2D.tsx'
 import { Viewer3D } from '../viewer3d/Viewer3D.tsx'
 import { activeScenario, redo, undo, useStore, type Tool, type ViewMode } from '../store.ts'
@@ -30,8 +30,13 @@ const TOOLS: { id: Tool; label: string; icon: string; key: string }[] = [
   { id: 'ceiling', label: 'Himling', icon: '▥', key: 'h' },
 ]
 
-type SaveState = 'saved' | 'saving' | 'error'
-const SAVE_LABELS: Record<SaveState, string> = { saved: 'Lagret', saving: 'Lagrer…', error: 'Feil ved lagring' }
+type SaveState = 'saved' | 'saving' | 'error' | 'conflict'
+const SAVE_LABELS: Record<SaveState, string> = {
+  saved: 'Lagret',
+  saving: 'Lagrer…',
+  error: 'Feil ved lagring',
+  conflict: 'Ikke lagret (konflikt)',
+}
 
 export function Editor({ projectId }: { projectId: string }) {
   const project = useStore((s) => s.project)
@@ -39,38 +44,83 @@ export function Editor({ projectId }: { projectId: string }) {
   const [save, setSave] = useState<SaveState>('saved')
   const inspectorWide = useStore((s) => s.inspectorTab === 'assistent' && !s.selection)
 
+  const [conflict, setConflict] = useState(false)
+  /** Server version the next save must match (If-Match). */
+  const versionRef = useRef(0)
+  /** True right after loading, so the load itself is not saved back. */
+  const skipSaveRef = useRef(true)
+  /** Saves run one after another, so two quick saves never race each other into a false conflict. */
+  const queueRef = useRef<Promise<void>>(Promise.resolve())
+  const conflictRef = useRef(false)
+
+  const loadFromServer = async () => {
+    const p = await api.get(projectId)
+    versionRef.current = p.version
+    skipSaveRef.current = true
+    useStore.getState().load(p)
+    useStore.temporal.getState().clear()
+  }
+
   // Load
   useEffect(() => {
     useStore.setState({ project: null })
-    api
-      .get(projectId)
-      .then((p) => {
-        useStore.getState().load(p)
-        useStore.temporal.getState().clear()
-      })
-      .catch((e) => setError(e.message))
+    loadFromServer().catch((e) => setError(e.message))
+    // eslint-disable-next-line @eslint-react/exhaustive-deps -- reload only when the project id changes
   }, [projectId])
 
+  const saveNow = () => {
+    queueRef.current = queueRef.current.then(async () => {
+      const current = useStore.getState().project
+      if (!current || conflictRef.current) return
+      try {
+        const saved = await api.save(current, versionRef.current)
+        versionRef.current = saved.version
+        setSave('saved')
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          conflictRef.current = true
+          setConflict(true)
+          setSave('conflict')
+        } else {
+          setSave('error')
+          setError((e as Error).message)
+        }
+      }
+    })
+  }
+
   // Debounced autosave
-  const loadedRef = useRef<unknown>(null)
   useEffect(() => {
     if (!project) return
-    if (loadedRef.current === null) {
-      loadedRef.current = project
+    if (skipSaveRef.current) {
+      skipSaveRef.current = false
       return
     }
+    if (conflictRef.current) return
     setSave('saving')
-    const t = setTimeout(() => {
-      api
-        .save(project)
-        .then(() => setSave('saved'))
-        .catch((e) => {
-          setSave('error')
-          setError(e.message)
-        })
-    }, 600)
+    const t = setTimeout(saveNow, 600)
     return () => clearTimeout(t)
   }, [project])
+
+  const resolveConflict = async (keepMine: boolean) => {
+    try {
+      if (keepMine) {
+        // Take the newest version number, then save our copy over it
+        versionRef.current = (await api.get(projectId)).version
+        conflictRef.current = false
+        setConflict(false)
+        setSave('saving')
+        saveNow()
+      } else {
+        conflictRef.current = false
+        setConflict(false)
+        await loadFromServer()
+        setSave('saved')
+      }
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -130,6 +180,24 @@ export function Editor({ projectId }: { projectId: string }) {
         <ViewPanes />
       </main>
       <Inspector />
+      {conflict && (
+        <div className="modal-backdrop">
+          <div className="modal" role="alertdialog" aria-labelledby="conflict-title">
+            <h3 id="conflict-title">Endret på en annen enhet</h3>
+            <p>
+              Prosjektet er lagret fra en annen fane eller enhet etter at du åpnet det. Endringene dine siden da er ikke
+              lagret.
+            </p>
+            <div className="row">
+              <button className="primary" onClick={() => void resolveConflict(false)}>
+                Last inn siste versjon
+              </button>
+              <button onClick={() => void resolveConflict(true)}>Behold mine endringer</button>
+            </div>
+            <p className="muted">«Behold mine» overskriver det som ble lagret fra den andre enheten.</p>
+          </div>
+        </div>
+      )}
       {error && (
         <div className="toast error" onClick={() => setError(null)}>
           {error}

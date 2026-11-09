@@ -135,6 +135,8 @@ export const Project = z.object({
   scenarios: z.array(Scenario).min(1),
   activeScenarioId: z.string(),
   chat: z.array(ChatMessage).default([]),
+  /** Incremented by the server on every save; used to detect edits from another device. */
+  version: z.number().int().nonnegative().default(0),
   createdAt: z.string(),
   updatedAt: z.string(),
 })

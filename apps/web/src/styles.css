@@ -846,3 +846,30 @@ select {
 .recognize > * {
   min-width: 0;
 }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #0f172a66;
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+.modal {
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 420px;
+  display: grid;
+  gap: 12px;
+  box-shadow: 0 10px 40px #0004;
+}
+.modal h3 {
+  margin: 0;
+}
+.modal p {
+  margin: 0;
+}
+.save-state.conflict {
+  color: var(--danger);
+}

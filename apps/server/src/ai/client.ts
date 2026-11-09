@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { HttpError } from '../storage.ts'
+import { HttpError } from '../errors.ts'
 
 export const MODEL = process.env.ROMSLIG_MODEL ?? 'claude-opus-5-5'
 
