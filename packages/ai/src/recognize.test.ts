@@ -13,6 +13,7 @@ const projectWith = (s: Scenario): Project => ({
   scenarios: [s],
   activeScenarioId: s.id,
   chat: [],
+  customFurniture: [],
   version: 0,
   createdAt: '',
   updatedAt: '',
@@ -51,6 +52,7 @@ describe('buildDescription', () => {
       scenarios: [s],
       activeScenarioId: s.id,
       chat: [],
+      customFurniture: [],
       version: 0,
       createdAt: '',
       updatedAt: '',
@@ -93,6 +95,8 @@ describe('recognizeFurniture', () => {
           position_hint: 'ved vinduet',
           confidence: 'high',
           photo: 1,
+          match: 'good',
+          proposal: null,
         },
       ],
       notes: 'Ingen usikkerhet',
@@ -111,6 +115,8 @@ describe('recognizeFurniture', () => {
           positionHint: 'ved vinduet',
           confidence: 'high',
           photo: 1,
+          match: 'good',
+          proposal: null,
         },
       ],
     })
@@ -118,6 +124,83 @@ describe('recognizeFurniture', () => {
       model: 'claude-opus-5-5',
       output_config: { format: { type: 'json_schema' } },
     })
+  })
+
+  it('keeps a proposal for furniture that does not match the catalog, and knows the project\x27s own furniture', async () => {
+    const own = {
+      id: 'custom_abc',
+      name: 'Hjørnesofa',
+      category: 'stue' as const,
+      w: 2.6,
+      d: 1.6,
+      h: 0.85,
+      clearance: { front: 0.5, back: 0, sides: 0 },
+      shape: 'sofa' as const,
+      color: '#7d8fa6',
+      nameEn: 'Corner sofa',
+      description: 'L-shaped sofa',
+    }
+    const withOwn = { ...project, customFurniture: [own] }
+    const answer = {
+      items: [
+        {
+          catalog_id: CATALOG[0]!.id,
+          name: 'Svart flygel',
+          width_cm: 150,
+          depth_cm: 190,
+          height_cm: 100,
+          side: 'free',
+          position_hint: 'midt i rommet',
+          confidence: 'medium',
+          photo: 1,
+          match: 'none',
+          proposal: {
+            name: 'Flygel',
+            name_en: 'Grand piano',
+            category: 'stue',
+            shape: 'box',
+            width_cm: 150,
+            depth_cm: 190,
+            height_cm: 100,
+            clearance_front_cm: 80,
+            clearance_sides_cm: 0,
+            clearance_back_cm: 0,
+            description_en: 'A black grand piano with the lid closed.',
+            needs_new_shape: true,
+          },
+        },
+        {
+          catalog_id: 'custom_abc',
+          name: 'Hjørnesofaen',
+          width_cm: 260,
+          depth_cm: 160,
+          height_cm: 85,
+          side: 'left',
+          position_hint: 'i hjørnet',
+          confidence: 'high',
+          photo: 1,
+          match: 'good',
+          proposal: null,
+        },
+      ],
+      notes: '',
+    }
+    const { client, requests } = fakeClient([{ content: [{ type: 'text', text: JSON.stringify(answer) }] }])
+    const r = await recognizeFurniture(client, RecognizeRequest.parse({ project: withOwn, roomId: 'r1', images }))
+    expect(r.items[0]!.match).toBe('none')
+    expect(r.items[0]!.proposal).toMatchObject({
+      name: 'Flygel',
+      nameEn: 'Grand piano',
+      w: 1.5,
+      d: 1.9,
+      needsNewShape: true,
+    })
+    expect(r.items[0]!.proposal!.clearance).toEqual({ front: 0.8, back: 0, sides: 0 })
+    expect(r.items[1]).toMatchObject({ catalogId: 'custom_abc', match: 'good', proposal: null })
+    // The prompt lists the project\x27s own furniture, and the schema accepts its id
+    const body = JSON.stringify(requests[0]!.body)
+    expect(body).toContain('custom_abc | Hjørnesofa')
+    expect(body).toContain('custom_abc')
   })
 
   it('rejects an unknown room without calling Claude', async () => {

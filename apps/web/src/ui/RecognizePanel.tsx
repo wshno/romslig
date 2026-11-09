@@ -7,6 +7,9 @@ import {
   type FurnitureItem,
   type RecognizeResult,
   type RecognizedItem,
+  type CustomFurniture,
+  catalogIssueUrl,
+  proposalToCustomFurniture,
   type PlanSide,
   type Room,
 } from '@romslig/shared'
@@ -66,6 +69,8 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<RecognizeResult | null>(null)
   const [chosen, setChosen] = useState<Set<number>>(() => new Set())
+  /** Items to add as the project's own furniture type instead of the nearest catalog item. */
+  const [asCustom, setAsCustom] = useState<Set<number>>(() => new Set())
   const previews = useMemo(
     () => files.map((f) => ({ key: `${f.name}:${f.size}`, url: URL.createObjectURL(f) })),
     [files],
@@ -83,6 +88,7 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
       if (!r) return // no key yet: the key dialog is open
       setResult(r)
       setChosen(new Set(r.items.map((_, i) => i).filter((i) => r.items[i]!.confidence !== 'low')))
+      setAsCustom(new Set(r.items.map((_, i) => i).filter((i) => r.items[i]!.proposal)))
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -92,11 +98,18 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
 
   const accept = () => {
     if (!result) return
-    const items = placeRecognized(
-      result.items.filter((_, i) => chosen.has(i)),
-      room,
-    )
-    useStore.getState().addFurnitureItems(items)
+    // Furniture the catalog has nothing similar for becomes the project's own type, with the size
+    // seen in the photos; it is registered before placing so the checks know its size.
+    const custom: CustomFurniture[] = []
+    const selected = result.items.flatMap((it, i) => {
+      if (!chosen.has(i)) return []
+      if (!asCustom.has(i) || !it.proposal) return [it]
+      const own = { ...proposalToCustomFurniture(it.proposal), ...it.size }
+      custom.push(own)
+      return [{ ...it, catalogId: own.id }]
+    })
+    if (custom.length) useStore.getState().addCustomFurniture(custom)
+    useStore.getState().addFurnitureItems(placeRecognized(selected, room))
     onClose()
   }
 
@@ -186,6 +199,18 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
                       <span className={`confidence ${it.confidence}`}>{CONFIDENCE[it.confidence]}</span>
                     </span>
                   </label>
+                  {it.proposal && (
+                    <ProposalRow
+                      item={it}
+                      useCustom={asCustom.has(i)}
+                      onToggle={(on) => {
+                        const next = new Set(asCustom)
+                        if (on) next.add(i)
+                        else next.delete(i)
+                        setAsCustom(next)
+                      }}
+                    />
+                  )}
                 </li>
               ))}
             </ul>
@@ -201,5 +226,41 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
         </>
       )}
     </section>
+  )
+}
+
+/** For furniture the catalog has no good match for: use it as your own type, or propose it. */
+function ProposalRow({
+  item,
+  useCustom,
+  onToggle,
+}: {
+  item: RecognizedItem
+  useCustom: boolean
+  onToggle(on: boolean): void
+}) {
+  const p = item.proposal!
+  const issue = catalogIssueUrl(
+    { ...proposalToCustomFurniture(p), ...item.size },
+    { nameEn: p.nameEn, needsNewShape: p.needsNewShape },
+  )
+  return (
+    <div className="proposal">
+      <span className={`match ${item.match}`}>
+        {item.match === 'none' ? 'Ikke i katalogen' : `Ligner på «${getCatalogItem(item.catalogId).name}»`}
+      </span>
+      <label>
+        <input type="checkbox" checked={useCustom} onChange={(e) => onToggle(e.target.checked)} />
+        <span>Legg inn som eget møbel «{p.name}»</span>
+      </label>
+      <a
+        href={issue}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Åpner et ferdig utfylt GitHub-issue (uten bilder)"
+      >
+        Foreslå for katalogen ↗
+      </a>
+    </div>
   )
 }

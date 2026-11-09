@@ -2,6 +2,8 @@ import { useState } from 'react'
 import {
   CATALOG,
   CATEGORY_LABELS,
+  catalogIssueUrl,
+  isCustomCatalogId,
   FURNITURE_CATEGORIES,
   findFreeSpot,
   getCatalogItem,
@@ -59,9 +61,11 @@ export function FurnitureCatalog() {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<FurnitureCategory | 'alle'>('alle')
   const q = query.trim().toLowerCase()
-  const items = CATALOG.filter(
-    (c) => (category === 'alle' || c.category === category) && (!q || c.name.toLowerCase().includes(q)),
-  )
+  const own = useStore((s) => s.project?.customFurniture ?? [])
+  const matches = (c: CatalogItem) =>
+    (category === 'alle' || c.category === category) && (!q || c.name.toLowerCase().includes(q))
+  // The project's own furniture first, then the shared catalog
+  const items: CatalogItem[] = [...own.filter(matches), ...CATALOG.filter(matches)]
   const add = (c: CatalogItem) => {
     const sc = activeScenario(useStore.getState().project!)
     const spot = placementFor(c, sc)
@@ -95,7 +99,10 @@ export function FurnitureCatalog() {
               title="Dra inn i tegningen, eller klikk for å legge til"
             >
               <i style={{ background: c.color }} />
-              <span>{c.name}</span>
+              <span>
+                {c.name}
+                {isCustomCatalogId(c.id) && <span className="custom-badge">eget</span>}
+              </span>
               <span className="muted">{dims(c)}</span>
             </button>
           </li>
@@ -177,12 +184,14 @@ export function FurnitureProps({ item }: { item: FurnitureItem }) {
       </div>
       <p>
         <b>{cat.name}</b>
+        {isCustomCatalogId(cat.id) && <span className="custom-badge">eget møbel</span>}
         <br />
         <span className="muted">
           {CATEGORY_LABELS[cat.category]}
           {room ? ` · ${room.name}` : ''}
         </span>
       </p>
+      {isCustomCatalogId(cat.id) && <ProposeLink id={cat.id} />}
       <label className="field">
         <span>Navn</span>
         <input
@@ -249,5 +258,25 @@ export function FurnitureProps({ item }: { item: FurnitureItem }) {
         roterer 90°.
       </p>
     </div>
+  )
+}
+
+/** For the project's own furniture types: propose them for the shared catalog via a GitHub issue. */
+function ProposeLink({ id }: { id: string }) {
+  const own = useStore((s) => s.project?.customFurniture.find((c) => c.id === id))
+  if (!own) return null
+  const href = catalogIssueUrl(own, { nameEn: own.nameEn || own.name })
+  return (
+    <p className="muted">
+      Dette møbelet finnes ikke i den felles katalogen.{' '}
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Åpner et ferdig utfylt GitHub-issue (uten bilder)"
+      >
+        Foreslå det for katalogen ↗
+      </a>
+    </p>
   )
 }

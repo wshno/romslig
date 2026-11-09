@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { Fixture, LoweredCeiling, Run } from './installations.ts'
+import { FURNITURE_CATEGORIES, FURNITURE_SHAPES } from './catalog.ts'
 
 /** All coordinates and lengths are in meters, in plan space (x right, y down). */
 export const Vec2 = z.object({ x: z.number(), y: z.number() })
@@ -112,6 +113,27 @@ export const Calibration = z.object({
 })
 export type Calibration = z.infer<typeof Calibration>
 
+/** A piece of furniture the user added to their project because the catalog had nothing similar. */
+export const CustomFurniture = z.object({
+  /** Always starts with "custom_". */
+  id: z.string().startsWith('custom_'),
+  name: z.string(),
+  category: z.enum(FURNITURE_CATEGORIES),
+  w: z.number().positive(),
+  d: z.number().positive(),
+  h: z.number().positive(),
+  elevation: z.number().min(0).optional(),
+  clearance: z.object({ front: z.number().min(0), back: z.number().min(0), sides: z.number().min(0) }),
+  shape: z.enum(FURNITURE_SHAPES),
+  color: z.string(),
+  collides: z.boolean().optional(),
+  allowInClearance: z.boolean().optional(),
+  /** English name and description, used when proposing the item for the shared catalog. */
+  nameEn: z.string().default(''),
+  description: z.string().default(''),
+})
+export type CustomFurniture = z.infer<typeof CustomFurniture>
+
 export const ChatMessage = z.object({
   id: z.string(),
   role: z.enum(['user', 'assistant']),
@@ -135,6 +157,8 @@ export const Project = z.object({
   scenarios: z.array(Scenario).min(1),
   activeScenarioId: z.string(),
   chat: z.array(ChatMessage).default([]),
+  /** The project's own furniture types (see CustomFurniture). */
+  customFurniture: z.array(CustomFurniture).default([]),
   /** Incremented by the server on every save; used to detect edits from another device. */
   version: z.number().int().nonnegative().default(0),
   createdAt: z.string(),

@@ -62,6 +62,7 @@ export function createApp(store: ProjectStore, authOpts: AuthOptions, opts: AppO
       scenarios: [scenario],
       activeScenarioId: scenario.id,
       chat: [],
+      customFurniture: [],
       version: 0,
       createdAt: now,
       updatedAt: now,

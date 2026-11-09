@@ -42,6 +42,7 @@ function project(): Project {
     scenarios: [s],
     activeScenarioId: s.id,
     chat: [],
+    customFurniture: [],
     version: 0,
     createdAt: '',
     updatedAt: '',
