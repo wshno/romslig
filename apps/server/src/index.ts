@@ -2,18 +2,29 @@ import { serve } from '@hono/node-server'
 import { buildInfoFromEnv, createApp } from './app.ts'
 import { authOptionsFromEnv } from './auth.ts'
 import { aiConfigFromEnv } from './ai/config.ts'
+import { jsonLog } from './log.ts'
 import { openStore } from './storage/index.ts'
 
 const authOpts = authOptionsFromEnv()
-const ai = aiConfigFromEnv()
+const ai = aiConfigFromEnv(process.env, (detail: string) => jsonLog({ level: 'warn', msg: 'config', detail }))
 const store = await openStore(authOpts)
-const app = createApp(store, authOpts, { ai, build: buildInfoFromEnv() })
-console.log(
-  `Auth: ${authOpts.mode}${authOpts.allowedGroup ? ', gruppe ' + authOpts.allowedGroup : ''} · lagring: ${process.env.PG_HOST ? 'postgres' : 'filer'} · AI: ${ai.mode}${ai.mode === 'server' && ai.group ? ', gruppe ' + ai.group : ''}`,
-)
+const build = buildInfoFromEnv()
+const app = createApp(store, authOpts, { ai, build })
 
 const port = Number(process.env.PORT ?? 8787)
-const server = serve({ fetch: app.fetch, port }, () => console.log(`API: http://localhost:${port}/api`))
+const server = serve({ fetch: app.fetch, port }, () =>
+  jsonLog({
+    msg: 'listening',
+    url: `http://localhost:${port}/api`,
+    version: build.version,
+    sha: build.sha,
+    auth: authOpts.mode,
+    group: authOpts.allowedGroup ?? null,
+    storage: process.env.PG_HOST ? 'postgres' : 'files',
+    ai: ai.mode,
+    aiGroup: ai.mode === 'server' ? (ai.group ?? null) : null,
+  }),
+)
 
 // tsx watch restarts the process on every change. On Windows the previous process can hold the
 // port for a moment, so retry instead of crashing, and release the port promptly on shutdown.
