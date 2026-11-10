@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../api.ts'
 import { Plan2D } from '../editor2d/Plan2D.tsx'
 import { Viewer3D } from '../viewer3d/Viewer3D.tsx'
-import { activeScenario, redo, undo, useStore, type Tool, type ViewMode } from '../store.ts'
+import { activeScenario, redo, resetHistory, undo, useStore, type Tool, type ViewMode } from '../store.ts'
+import { useHistory, useTypingAsOneUndoStep } from '../hooks.ts'
 import { Inspector } from './Inspector.tsx'
 import { CompareView } from './CompareView.tsx'
 import { ApiKeyButton, ApiKeyDialog } from './ApiKeyDialog.tsx'
@@ -46,6 +47,7 @@ export function Editor({ projectId }: { projectId: string }) {
   const [save, setSave] = useState<SaveState>('saved')
   const inspectorWide = useStore((s) => s.inspectorTab === 'assistent' && !s.selection)
   const keyDialogOpen = useAi((s) => s.keyDialogOpen)
+  const typing = useTypingAsOneUndoStep()
 
   // AI mode (byok or server) for the key button and the AI panels
   useEffect(() => {
@@ -66,7 +68,7 @@ export function Editor({ projectId }: { projectId: string }) {
     versionRef.current = p.version
     skipSaveRef.current = true
     useStore.getState().load(p)
-    useStore.temporal.getState().clear()
+    resetHistory()
   }
 
   // Load
@@ -181,7 +183,7 @@ export function Editor({ projectId }: { projectId: string }) {
   if (!project) return <div className="home muted">Laster prosjekt…</div>
 
   return (
-    <div className={`editor${inspectorWide ? ' wide-inspector' : ''}`}>
+    <div className={`editor${inspectorWide ? ' wide-inspector' : ''}`} {...typing}>
       <TopBar save={save} />
       <Toolbar />
       <main className="views">
@@ -230,6 +232,7 @@ function ViewPanes() {
 function TopBar({ save }: { save: SaveState }) {
   const project = useStore((s) => s.project)!
   const view = useStore((s) => s.view)
+  const { canUndo, canRedo } = useHistory()
   const { setView, updateProject, setActiveScenario, duplicateScenario, renameScenario, deleteScenario } =
     useStore.getState()
   const scenario = activeScenario(project)
@@ -285,10 +288,10 @@ function TopBar({ save }: { save: SaveState }) {
         </button>
       </div>
       <div className="spacer" />
-      <button title="Angre (Ctrl+Z)" onClick={undo}>
+      <button title="Angre (Ctrl+Z)" onClick={undo} disabled={!canUndo}>
         ↶
       </button>
-      <button title="Gjør om (Ctrl+Y)" onClick={redo}>
+      <button title="Gjør om (Ctrl+Y)" onClick={redo} disabled={!canRedo}>
         ↷
       </button>
       <div className="segmented">
