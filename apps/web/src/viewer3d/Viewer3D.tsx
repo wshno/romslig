@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls } from '@react-three/drei'
-import { clampOpening, wallDir, wallLength, wallPieces, type Opening, type Room, type Wall } from '@romslig/shared'
+import { wallDir, wallLength, wallPieces, type Opening, type Room, type Wall } from '@romslig/shared'
 import { useScenario, useStore } from '../store.ts'
 import { useFurnitureIssues } from '../hooks.ts'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
 import { Furniture3D } from './Furniture3D.tsx'
 import { Installations3D } from './Installations3D.tsx'
+import { Opening3D } from './Openings3D.tsx'
 
 /** Converts a screen position to a point on the floor; set by <FloorPicker> inside the canvas. */
 type FloorPick = (clientX: number, clientY: number) => { x: number; y: number } | null
@@ -94,12 +95,10 @@ export function Viewer3D() {
             showLoadBearing={showLoadBearing}
           />
         ))}
-        {scenario.openings
-          .filter((o) => o.kind === 'window')
-          .map((o) => {
-            const w = scenario.walls.find((x) => x.id === o.wallId)
-            return w ? <Glass key={o.id} wall={w} o={o} cutHeight={cutHeight} /> : null
-          })}
+        {scenario.openings.map((o) => {
+          const w = scenario.walls.find((x) => x.id === o.wallId)
+          return w ? <Opening3D key={o.id} wall={w} o={o} cutHeight={cutHeight} /> : null
+        })}
         {mode === 'orbit' ? (
           <>
             <OrbitControls
@@ -226,21 +225,6 @@ function WallMesh({
           </mesh>
         )
       })}
-    </group>
-  )
-}
-
-function Glass({ wall, o, cutHeight }: { wall: Wall; o: Opening; cutHeight: number | null }) {
-  const { start, end } = clampOpening(o, wall)
-  const d = wallDir(wall)
-  const top = Math.min(o.sill + o.height, cutHeight ?? Infinity)
-  if (top <= o.sill) return null
-  return (
-    <group position={[wall.a.x, 0, wall.a.y]} rotation-y={-Math.atan2(d.y, d.x)}>
-      <mesh position={[(start + end) / 2, (o.sill + top) / 2, 0]}>
-        <boxGeometry args={[end - start, top - o.sill, 0.02]} />
-        <meshStandardMaterial color="#9fd3f0" transparent opacity={0.35} />
-      </mesh>
     </group>
   )
 }
