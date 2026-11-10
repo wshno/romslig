@@ -10,5 +10,6 @@ export default [
   ...react.map((c) => ({ ...c, files: (c.files ?? ['**/*.{js,jsx,ts,tsx}']).map((f) => `apps/web/${f}`) })),
   ...node.map((c) => ({ ...c, files: ['apps/server/**/*.ts', 'packages/**/*.ts', '*.{js,ts}', '**/vite.config.ts'] })),
   ...vitest(),
-  { ignores: ['data/**', '.playwright-mcp/**'] },
+  // e2e/ is its own package with its own eslint config.
+  { ignores: ['data/**', '.playwright-mcp/**', 'e2e/**'] },
 ]

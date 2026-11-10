@@ -53,17 +53,19 @@ spec:
             # this group in Remote-Groups.
             - name: ALLOWED_GROUP
               value: '${ALLOWED_GROUP:=}'
+            # Empty PG_HOST (e.g. a PR preview): the API keeps projects in its file store instead.
             - name: PG_HOST
-              value: '${PG_HOST}'
+              value: '${PG_HOST:=}'
             - name: PG_DB
               value: '${PG_DB:=romslig}'
             - name: PG_USER
-              value: '${PG_USER}'
+              value: '${PG_USER:=romslig}'
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: '${PG_SECRET}'
+                  name: '${PG_SECRET:=romslig-pg-secret}'
                   key: password
+                  optional: true
             # byok: the browser calls Anthropic with the user's own key, which never reaches the API.
             # server: the API proxies AI calls with its own key, for members of AI_GROUP if that is set.
             - name: AI_MODE

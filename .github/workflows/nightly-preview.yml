@@ -1,0 +1,203 @@
+name: Nightly preview E2E
+
+# Every night: deploys main (manifests:main, pushed and signed by pr-e2e.yml on every merge) to an
+# ephemeral preview env, runs the whole e2e suite against it, then tears it down. Unlike the compose
+# run in pr-e2e.yml this goes through the real chain: the OPNsense/NAXSI edge, Traefik and TLS,
+# Authelia (signed in as the e2e user with TOTP), Flux's signature check and the network policies.
+# A failure opens (or comments on) an issue labelled `nightly-preview`; the next green run closes it.
+#
+# Needs, besides pr-e2e.yml's PROXMOX_GITOPS_* app: the `build` environment's E2E_USERNAME,
+# E2E_PASSWORD and E2E_OTP_SECRET (an LDAP user in romslig-users with TOTP).
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 01:30 UTC: clear of the PBS backup window and of ClutterStock's nightly at 01:00.
+    - cron: '30 1 * * *'
+
+permissions: {}
+
+concurrency:
+  group: nightly-preview
+  cancel-in-progress: false
+
+env:
+  HOST: romslig-nightly.preview.wsh.no
+
+jobs:
+  # The digest :main points at now, so the env and the report name the exact build, and the runner
+  # image that goes with the e2e suite's @wshno/playwright-config.
+  resolve:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      digest: ${{ steps.main.outputs.digest }}
+      revision: ${{ steps.main.outputs.revision }}
+      e2e_image: ${{ steps.e2e-image.outputs.ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Runner image from the lock file
+        id: e2e-image
+        run: |
+          set -euo pipefail
+          v=$(jq -r '.packages["node_modules/@wshno/playwright-config"].version' e2e/package-lock.json)
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::No @wshno/playwright-config version"; exit 1; }
+          echo "ref=ghcr.io/wshno/playwright-config:$v" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve manifests:main
+        id: main
+        run: |
+          set -euo pipefail
+          repo=wshno/romslig/manifests
+          token="$(curl -fsS "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -r .token)"
+          accept="application/vnd.oci.image.manifest.v1+json"
+          digest="$(curl -fsSI -H "Authorization: Bearer $token" -H "Accept: $accept" \
+            "https://ghcr.io/v2/${repo}/manifests/main" | tr -d '\r' \
+            | awk 'tolower($1)=="docker-content-digest:" {print $2}')"
+          [ -n "$digest" ] || { echo "::error::manifests:main not found (has pr-e2e.yml run on main yet?)"; exit 1; }
+          revision="$(curl -fsS -H "Authorization: Bearer $token" -H "Accept: $accept" \
+            "https://ghcr.io/v2/${repo}/manifests/${digest}" \
+            | jq -r '.annotations["org.opencontainers.image.revision"] // "unknown"')"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "manifests:main → \`$digest\` ($revision)" >> "$GITHUB_STEP_SUMMARY"
+
+  # Removes anything a failed night left behind (no commit when there is nothing), so the env is
+  # created from scratch every time.
+  clear:
+    permissions:
+      contents: read
+    uses: hwinther/reusable-workflows/.github/workflows/gitops-preview-teardown.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      target_repo: hwinther/proxmox
+      preview_base_path: clusters/production/apps/previews/romslig
+      pr_number: nightly
+      app_name: romslig
+      client_id: ${{ vars.PROXMOX_GITOPS_CLIENT_ID }}
+    secrets:
+      app_private_key: ${{ secrets.PROXMOX_GITOPS_APP_PRIVATE_KEY }}
+
+  # The e2e job waits for readiness, so a leftover env still answering would pass that wait with the
+  # old build. Wait until the host is gone first. /api/health bypasses Authelia (no session needed).
+  wait-gone:
+    needs: [clear]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Wait until the old env is gone
+        run: |
+          url="https://${HOST}/api/health"
+          deadline=$(( $(date +%s) + 900 ))
+          while :; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || true)
+            [ "$code" != "200" ] && { echo "$url: $code, gone."; break; }
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::$url still answers 200 after 15 minutes."
+              exit 1
+            fi
+            echo "$url still answers 200, retrying in 15s"
+            sleep 15
+          done
+
+  deploy:
+    needs: [resolve, wait-gone]
+    permissions:
+      contents: read
+    uses: hwinther/reusable-workflows/.github/workflows/gitops-preview-upsert.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      target_repo: hwinther/proxmox
+      preview_base_path: clusters/production/apps/previews/romslig
+      pr_number: nightly
+      host: romslig-nightly.preview.wsh.no
+      app_name: romslig
+      # The preview template pins the manifest artifact (which pins the images), not the images.
+      image_tag: main
+      image_digest: ${{ needs.resolve.outputs.digest }}
+      client_id: ${{ vars.PROXMOX_GITOPS_CLIENT_ID }}
+    secrets:
+      app_private_key: ${{ secrets.PROXMOX_GITOPS_APP_PRIVATE_KEY }}
+
+  # The whole suite except @local-only (a second user needs the compose stack), signed in through
+  # Authelia by the setup project.
+  e2e:
+    needs: [resolve, deploy]
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      pull-requests: write
+    uses: hwinther/reusable-workflows/.github/workflows/playwright-e2e.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      base_url: https://romslig-nightly.preview.wsh.no
+      # Browsers baked in (chromium-headless-shell), so the job installs none.
+      container_image: ${{ needs.resolve.outputs.e2e_image }}
+      # Flux reconciles within ~1 min; a fresh namespace also waits for the image pulls.
+      wait_url: https://romslig-nightly.preview.wsh.no/api/health
+      wait_timeout_seconds: 900
+      playwright_working_directory: e2e
+      environment: build
+      playwright_cache_enabled: true
+      node_modules_cache_enabled: true
+      pr_comment_enabled: false
+    secrets:
+      e2e_username: ${{ secrets.E2E_USERNAME }}
+      e2e_password: ${{ secrets.E2E_PASSWORD }}
+      e2e_otp_secret: ${{ secrets.E2E_OTP_SECRET }}
+
+  teardown:
+    needs: [deploy, e2e]
+    if: ${{ always() && needs.deploy.result != 'skipped' }}
+    permissions:
+      contents: read
+    uses: hwinther/reusable-workflows/.github/workflows/gitops-preview-teardown.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      target_repo: hwinther/proxmox
+      preview_base_path: clusters/production/apps/previews/romslig
+      pr_number: nightly
+      app_name: romslig
+      client_id: ${{ vars.PROXMOX_GITOPS_CLIENT_ID }}
+    secrets:
+      app_private_key: ${{ secrets.PROXMOX_GITOPS_APP_PRIVATE_KEY }}
+
+  # One open issue while the nightly is red: opened on the first failure, commented on after that,
+  # closed by the next green run.
+  report:
+    needs: [resolve, clear, wait-gone, deploy, e2e, teardown]
+    if: ${{ always() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULTS: ${{ needs.resolve.result }} ${{ needs.clear.result }} ${{ needs.wait-gone.result }} ${{ needs.deploy.result }} ${{ needs.e2e.result }} ${{ needs.teardown.result }}
+          E2E: ${{ needs.e2e.result }}
+          REVISION: ${{ needs.resolve.outputs.revision }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          label=nightly-preview
+          gh label create "$label" --color D93F0B \
+            --description "The nightly preview e2e run is failing" 2>/dev/null || true
+          open="$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')"
+          if [ "$E2E" = success ] && [[ "$RESULTS" != *failure* ]]; then
+            if [ -n "$open" ]; then
+              gh issue close "$open" --comment "Green again on $REVISION: $RUN_URL"
+            fi
+            exit 0
+          fi
+          body="Nightly preview e2e failed on \`$REVISION\` (job results: $RESULTS).
+
+          Run: $RUN_URL"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+          else
+            gh issue create --title "Nightly preview e2e is failing" --label "$label" --body "$body"
+          fi

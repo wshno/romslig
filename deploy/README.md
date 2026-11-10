@@ -71,10 +71,10 @@ eller en boolsk verdi ville fått feil YAML-type.
 | Variabel                      | Standard            | Brukes til                                                                                                                                                                                                                                                      |
 | ----------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `APP_HOST`                    | (påkrevd)           | Vertsnavnet i HTTPRoute-en og homepage-lenken, f.eks. `romslig.wsh.no`                                                                                                                                                                                          |
-| `PG_HOST`                     | (påkrevd)           | PostgreSQL-tjenesten (read-write)                                                                                                                                                                                                                               |
+| `PG_HOST`                     | (tom)               | PostgreSQL-tjenesten (read-write). Tom betyr ingen database: API-et lagrer prosjektene i filer i poden, som forsvinner når poden starter på nytt. Bare for PR-forhåndsvisninger                                                                                 |
 | `PG_DB`                       | `romslig`           | Databasenavn                                                                                                                                                                                                                                                    |
-| `PG_USER`                     | (påkrevd)           | Databaserollen (eier skjemaet)                                                                                                                                                                                                                                  |
-| `PG_SECRET`                   | (påkrevd)           | Navnet på hemmeligheten med rollens `password` (blir `PG_PASSWORD` i API-et)                                                                                                                                                                                    |
+| `PG_USER`                     | `romslig`           | Databaserollen (eier skjemaet)                                                                                                                                                                                                                                  |
+| `PG_SECRET`                   | `romslig-pg-secret` | Navnet på hemmeligheten med rollens `password` (blir `PG_PASSWORD` i API-et). Referansen er valgfri, så den kan mangle uten database                                                                                                                            |
 | `ALLOWED_GROUP`               | (tom)               | Gruppe API-et i tillegg krever i `Remote-Groups`. Tom betyr alle som Authelia slipper inn                                                                                                                                                                       |
 | `AI_MODE`                     | `byok`              | `byok`: brukerens egen nøkkel i nettleseren. `server`: API-et bruker sin egen nøkkel                                                                                                                                                                            |
 | `AI_SECRET`                   | `romslig-anthropic` | Navnet på en valgfri hemmelighet med nøkkelen `api-key` (blir `ANTHROPIC_API_KEY`). Trengs bare i `server`-modus; mangler den, starter API-et likevel. Standarden er ikke tom fordi Kubernetes avviser et tomt hemmelighetsnavn, også når referansen er valgfri |
@@ -100,7 +100,7 @@ Satt av `api.yaml`, lest av serveren: `PORT` (`8080`), `AUTH_MODE` (`forward`), 
 
 I navnerommet:
 
-- `${PG_SECRET}`: nøkkelen `password`, for `PG_USER`.
+- `${PG_SECRET}` (når `PG_HOST` er satt): nøkkelen `password`, for `PG_USER`.
 - `${AI_SECRET}` (valgfri, bare i `server`-modus): nøkkelen `api-key`, en Anthropic API-nøkkel.
 
 ### Ressursnavn
