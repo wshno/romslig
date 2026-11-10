@@ -1,0 +1,163 @@
+/* The print page (#/p/<id>/print): a sheet per variant on screen, and the same sheets on paper. */
+.print-page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 0 16px 32px;
+  display: grid;
+  gap: 16px;
+}
+.print-tools {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.print-tools label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.print-tools select {
+  max-width: 220px;
+}
+
+.sheet {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+}
+.sheet header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.sheet header h1 {
+  margin: 0;
+  font-size: 20px;
+  overflow-wrap: anywhere;
+}
+.sheet header p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.sheet h2 {
+  font-size: 15px;
+}
+.sheet .plan {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 78vh;
+  object-fit: contain;
+  margin: 12px 0;
+}
+.sheet .lists {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 24px;
+  align-items: start;
+  margin-top: 16px;
+}
+.sheet table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.sheet th,
+.sheet td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+.sheet thead th {
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom-color: #94a3b8;
+}
+.sheet .num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.sheet tr.group th {
+  padding-top: 10px;
+  font-weight: 600;
+}
+.sheet tfoot th,
+.sheet tfoot td {
+  border-bottom: none;
+  border-top: 1px solid #94a3b8;
+  font-weight: 600;
+}
+.sheet .fine {
+  font-size: 12px;
+  margin: 16px 0 0;
+}
+
+@media (max-width: 640px) {
+  .sheet {
+    padding: 16px;
+  }
+  .sheet .lists {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@page {
+  margin: 14mm;
+}
+@media print {
+  :root:has(.print-page) {
+    background: #fff;
+  }
+  .print-tools,
+  .print-page .screen-only,
+  .print-page ~ .site-footer {
+    display: none;
+  }
+  .print-page {
+    max-width: none;
+    padding: 0;
+    display: block;
+  }
+  .sheet {
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    break-after: page;
+  }
+  .sheet:last-child {
+    break-after: auto;
+  }
+  /* Leaves room for the heading above and the start of the lists below on the first page */
+  .sheet .plan {
+    max-height: 165mm;
+  }
+  .sheet tr {
+    break-inside: avoid;
+  }
+  .sheet thead {
+    display: table-header-group;
+  }
+  /* A sum belongs at the end of its table, not at the foot of every page the table runs over */
+  .sheet tfoot {
+    display: table-row-group;
+  }
+  .sheet .note {
+    border: 1px solid #94a3b8;
+    background: none;
+  }
+}

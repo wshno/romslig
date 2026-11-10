@@ -18,17 +18,24 @@ export const ProjectExport = z.object({
 })
 export type ProjectExport = z.infer<typeof ProjectExport>
 
-/** The name the file is saved under, e.g. "romslig-hytta-på-fjellet-2026-11-10.json". */
-export function exportFileName(projectName: string, when: Date): string {
-  const words = projectName
+/**
+ * A name as part of a file name: its letters and digits in lower case, everything else as single
+ * hyphens, at most 60 characters. `fallback` is used for a name with no letter or digit in it.
+ */
+export function fileSlug(name: string, fallback: string): string {
+  const words = name
     .normalize('NFC')
     .toLowerCase()
     // Every run of anything else becomes one hyphen, so there is at most one at each end
     .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-|-$/g, '')
   // Cut by character, not by UTF-16 unit, so a letter outside the basic plane is never halved
-  const slug = Array.from(words).slice(0, 60).join('').replace(/-$/, '')
-  return `romslig-${slug || 'prosjekt'}-${when.toISOString().slice(0, 10)}.json`
+  return Array.from(words).slice(0, 60).join('').replace(/-$/, '') || fallback
+}
+
+/** The name the file is saved under, e.g. "romslig-hytta-på-fjellet-2026-11-10.json". */
+export function exportFileName(projectName: string, when: Date): string {
+  return `romslig-${fileSlug(projectName, 'prosjekt')}-${when.toISOString().slice(0, 10)}.json`
 }
 
 export type ReadExport = { ok: true; file: ProjectExport } | { ok: false; error: string }

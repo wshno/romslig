@@ -298,6 +298,13 @@ function TopBar({ save }: { save: SaveState }) {
           </button>
         ))}
       </div>
+      <button
+        title="Skriv ut: plan med mål, romliste og møbelliste"
+        aria-label="Skriv ut"
+        onClick={() => (window.location.hash = `#/p/${project.id}/print`)}
+      >
+        🖨
+      </button>
       <ApiKeyButton />
       <span className={`save-state ${save}`}>{SAVE_LABELS[save]}</span>
     </header>
