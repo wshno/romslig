@@ -178,6 +178,16 @@ export const DEFAULTS = {
   opening: { width: 1.2, height: 2.1, sill: 0 },
 } as const
 
+/**
+ * The opening as another kind. A window sits above the floor and a door or an open passage goes
+ * down to it, so changing to or from a window gives the sill and height usual for the new kind.
+ * Between door and open passage only the kind changes. The width is kept: it was set on the plan.
+ */
+export function withOpeningKind(o: Opening, kind: OpeningKind): Opening {
+  if ((kind === 'window') === (o.kind === 'window')) return { ...o, kind }
+  return { ...o, kind, sill: DEFAULTS[kind].sill, height: DEFAULTS[kind].height }
+}
+
 export function newId(prefix = ''): string {
   return prefix + crypto.randomUUID().replace(/-/g, '').slice(0, 10)
 }

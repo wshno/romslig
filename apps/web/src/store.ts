@@ -22,6 +22,7 @@ import {
   FIXTURE_INFO,
   RUN_INFO,
   defaultRunHeight,
+  fitOpening,
   type Opening,
   type Note,
   type OpeningKind,
@@ -122,6 +123,12 @@ export const activeScenario = (p: Project): Scenario =>
   p.scenarios.find((s) => s.id === p.activeScenarioId) ?? p.scenarios[0]!
 
 const scaleVec = (v: Vec2, k: number): Vec2 => ({ x: v.x * k, y: v.y * k })
+
+/** An opening is never wider than its wall, and never sticks out past the end of it. */
+function inWall(o: Opening, s: Scenario): Opening {
+  const wall = s.walls.find((w) => w.id === o.wallId)
+  return wall ? fitOpening(o, wall) : o
+}
 
 export const useStore = create<State>()(
   temporal(
@@ -230,13 +237,13 @@ export const useStore = create<State>()(
           sill: d.sill,
           flip: false,
         }
-        get().updateScenario((s) => ({ ...s, openings: [...s.openings, o] }))
+        get().updateScenario((s) => ({ ...s, openings: [...s.openings, inWall(o, s)] }))
         set({ selection: { kind: 'opening', id: o.id } })
       },
       updateOpening: (id, patch) =>
         get().updateScenario((s) => ({
           ...s,
-          openings: s.openings.map((o) => (o.id === id ? { ...o, ...patch } : o)),
+          openings: s.openings.map((o) => (o.id === id ? inWall({ ...o, ...patch }, s) : o)),
         })),
 
       addRoom: (polygon) => {
