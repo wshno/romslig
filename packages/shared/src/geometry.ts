@@ -57,6 +57,23 @@ export function pointInPolygon(p: Vec2, poly: Vec2[]): boolean {
   return inside
 }
 
+/**
+ * A point that lies inside the polygon. The centroid of an L- or U-shaped room can fall outside
+ * it, so then the centre of the first corner triangle that is inside is used.
+ */
+export function interiorPoint(poly: Vec2[]): Vec2 {
+  const c = polygonCentroid(poly)
+  if (poly.length < 4 || pointInPolygon(c, poly)) return c
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]!
+    const q = poly[(i + 1) % poly.length]!
+    const r = poly[(i + 2) % poly.length]!
+    const m = v((p.x + q.x + r.x) / 3, (p.y + q.y + r.y) / 3)
+    if (pointInPolygon(m, poly)) return m
+  }
+  return c
+}
+
 export function closestPointOnSegment(p: Vec2, a: Vec2, b: Vec2): { point: Vec2; t: number; dist: number } {
   const ab = sub(b, a)
   const l2 = dot(ab, ab)

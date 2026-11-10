@@ -34,10 +34,11 @@ jobs:
       pull-requests: write
     steps:
       - name: Mark the preview-URL comment as torn down
-        uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
+        uses: hwinther/reusable-workflows/.github/actions/sticky-pr-comment@5ba6e5a72dec8dcd121cc864279889bb2fa6ed73 # v2.31.0
         with:
-          header: romslig-preview-env
-          message: |
+          github_token: ${{ github.token }}
+          comment_identifier: romslig-preview-env
+          comment_content: |
             ### Preview environment torn down
 
             The PR is closed and the preview env has been removed from the cluster (Flux prune).
