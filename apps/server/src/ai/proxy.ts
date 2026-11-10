@@ -1,9 +1,10 @@
 import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { User } from '../auth.ts'
+import { jsonLog, type Log, type LogLine } from '../log.ts'
 import { aiModeFor, type AiConfig } from './config.ts'
 
-type Env = { Variables: { user: User } }
+type Env = { Variables: { user: User; requestId: string } }
 
 /** Largest request body the proxy accepts (images are base64 in the JSON). */
 export const MAX_BODY_BYTES = 20 * 1024 * 1024
@@ -56,16 +57,16 @@ const logSafe = (v: unknown) =>
  * Passes the response through unchanged while noting the token counts from `usage` (in the JSON
  * body or the SSE events), and logs one line when it ends. Never logs content.
  */
-function withUsageLog(body: ReadableStream<Uint8Array>, log: (usage: string) => void) {
+function withUsageLog(body: ReadableStream<Uint8Array>, log: (usage: Omit<LogLine, 'msg' | 'level'>) => void) {
   const decoder = new TextDecoder()
   let tail = ''
   let input = 0
   let output = 0
   let logged = false
-  const done = (suffix = '') => {
+  const done = (aborted: boolean) => {
     if (logged) return
     logged = true
-    log(`input_tokens=${input} output_tokens=${output}${suffix}`)
+    log({ input_tokens: input, output_tokens: output, ...(aborted ? { aborted } : {}) })
   }
   return body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
@@ -76,8 +77,8 @@ function withUsageLog(body: ReadableStream<Uint8Array>, log: (usage: string) => 
         for (const m of text.matchAll(/"output_tokens":\s*(\d+)/g)) output = Math.max(output, Number(m[1]))
         tail = text.slice(-64)
       },
-      flush: () => done(),
-      cancel: () => done(' (avbrutt)'),
+      flush: () => done(false),
+      cancel: () => done(true),
     }),
   )
 }
@@ -87,10 +88,23 @@ function withUsageLog(body: ReadableStream<Uint8Array>, log: (usage: string) => 
  * users whose effective AI mode is "server". The browser SDK points its baseURL here. In byok mode
  * (or for users outside AI_GROUP) the route does not exist (404).
  */
-export function aiProxy(cfg: AiConfig, fetchImpl: typeof fetch = fetch, limiter = new RateLimiter(cfg.ratePerMin)) {
+export function aiProxy(
+  cfg: AiConfig,
+  fetchImpl: typeof fetch = fetch,
+  limiter = new RateLimiter(cfg.ratePerMin),
+  write: Log = jsonLog,
+) {
   const app = new Hono<Env>()
-  const log = (user: User, model: unknown, status: number, extra = '') =>
-    console.log(`ai-proxy user=${logSafe(user.id)} model=${logSafe(model)} status=${status}${extra ? ' ' + extra : ''}`)
+  /** One line per AI request, with the id of the request line it belongs to. */
+  const note = (c: Context<Env>, model: unknown, status: number, extra: Omit<LogLine, 'msg' | 'level'> = {}) =>
+    write({
+      msg: 'ai',
+      id: c.get('requestId'),
+      user: logSafe(c.get('user').id),
+      model: logSafe(model),
+      status,
+      ...extra,
+    })
 
   app.post(
     '/v1/messages',
@@ -101,24 +115,26 @@ export function aiProxy(cfg: AiConfig, fetchImpl: typeof fetch = fetch, limiter 
     bodyLimit({
       maxSize: MAX_BODY_BYTES,
       onError: (c) => {
-        log(c.get('user'), '-', 413)
+        note(c, '-', 413)
         return anthropicError(c, 413, 'request_too_large', 'Forespørselen er for stor (maks 20 MB).')
       },
     }),
     async (c) => {
       const user = c.get('user')
+      const log = (model: unknown, status: number, extra?: Omit<LogLine, 'msg' | 'level'>) =>
+        note(c, model, status, extra)
       const raw = await c.req.text()
       let body: { model?: unknown; max_tokens?: unknown }
       try {
         body = JSON.parse(raw) as typeof body
         if (typeof body !== 'object' || body === null || Array.isArray(body)) throw new Error('not an object')
       } catch {
-        log(user, '-', 400)
+        log('-', 400)
         return anthropicError(c, 400, 'invalid_request_error', 'Forespørselen er ikke gyldig JSON.')
       }
       const { model, max_tokens: maxTokens } = body
       if (typeof model !== 'string' || !cfg.models.includes(model)) {
-        log(user, model, 400)
+        log(model, 400)
         return anthropicError(
           c,
           400,
@@ -127,7 +143,7 @@ export function aiProxy(cfg: AiConfig, fetchImpl: typeof fetch = fetch, limiter 
         )
       }
       if (typeof maxTokens !== 'number' || !Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > cfg.maxTokens) {
-        log(user, model, 400)
+        log(model, 400)
         return anthropicError(
           c,
           400,
@@ -137,7 +153,7 @@ export function aiProxy(cfg: AiConfig, fetchImpl: typeof fetch = fetch, limiter 
       }
       const wait = limiter.take(user.id)
       if (wait !== null) {
-        log(user, model, 429)
+        log(model, 429)
         c.header('retry-after', String(wait))
         // The browser SDK would otherwise retry at once and count against the limit again
         c.header('x-should-retry', 'false')
@@ -160,10 +176,10 @@ export function aiProxy(cfg: AiConfig, fetchImpl: typeof fetch = fetch, limiter 
       } catch (e) {
         if (c.req.raw.signal.aborted) {
           // The browser went away; nobody reads this response
-          log(user, model, 499)
+          log(model, 499, { aborted: true })
           return new Response(null, { status: 499 })
         }
-        log(user, model, 502, `error=${logSafe((e as Error).name)}`)
+        log(model, 502, { error: logSafe((e as Error).name) })
         return anthropicError(c, 502, 'api_error', 'Fikk ikke kontakt med Anthropic.')
       }
 
@@ -174,10 +190,10 @@ export function aiProxy(cfg: AiConfig, fetchImpl: typeof fetch = fetch, limiter 
       }
       out.set('cache-control', 'no-store')
       if (!upstream.body) {
-        log(user, model, upstream.status)
+        log(model, upstream.status)
         return new Response(null, { status: upstream.status, headers: out })
       }
-      const stream = withUsageLog(upstream.body, (usage) => log(user, model, upstream.status, usage))
+      const stream = withUsageLog(upstream.body, (usage) => log(model, upstream.status, usage))
       return new Response(stream, { status: upstream.status, headers: out })
     },
   )

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../app.ts'
+import type { LogLine } from '../log.ts'
 import { FileStore } from '../storage/file.ts'
 import type { ProjectStore } from '../storage/index.ts'
 import { aiConfigFromEnv, type AiConfig } from './config.ts'
@@ -27,6 +28,8 @@ const SSE = [
 
 let root = ''
 let store: ProjectStore
+/** Every log line the app wrote during a test. */
+let logged: LogLine[] = []
 
 beforeAll(async () => {
   upstream = createServer((req, res) => {
@@ -65,7 +68,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   received = []
-  vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  logged = []
 })
 
 function config(env: NodeJS.ProcessEnv = {}): AiConfig {
@@ -76,7 +79,7 @@ function config(env: NodeJS.ProcessEnv = {}): AiConfig {
 }
 
 function appWith(cfg: AiConfig) {
-  return createApp(store, { mode: 'forward' }, { ai: cfg })
+  return createApp(store, { mode: 'forward' }, { ai: cfg, log: (line) => logged.push(line) })
 }
 
 const message = (extra: Record<string, unknown> = {}) =>
@@ -129,7 +132,6 @@ describe('AI proxy', () => {
   })
 
   it('streams SSE through unchanged and logs usage, not content', async () => {
-    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const res = await post(appWith(config()), message({ stream: true }))
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('text/event-stream')
@@ -145,9 +147,12 @@ describe('AI proxy', () => {
     }
     expect(chunks.join('')).toBe(SSE.join(''))
     expect(chunks.length).toBeGreaterThan(1)
-    const lines = log.mock.calls.map((c) => String(c[0]))
-    expect(lines).toEqual(['ai-proxy user=kari model=claude-opus-5-5 status=200 input_tokens=12 output_tokens=7'])
-    expect(lines.join('')).not.toContain('Hei')
+    const id = res.headers.get('x-request-id')
+    expect(logged).toEqual([
+      expect.objectContaining({ msg: 'request', id, route: '/api/ai/v1/messages', status: 200, user: 'kari' }),
+      { msg: 'ai', id, user: 'kari', model: 'claude-opus-5-5', status: 200, input_tokens: 12, output_tokens: 7 },
+    ])
+    expect(JSON.stringify(logged)).not.toContain('Hei')
   })
 
   it('rejects models that are not allowed', async () => {

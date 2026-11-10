@@ -1,10 +1,12 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Project, ProjectSummary } from '@romslig/shared'
 import { buildInfoFromEnv, createApp } from './app.ts'
+import type { LogLine } from './log.ts'
 import { FileStore } from './storage/file.ts'
+import type { ProjectStore } from './storage/index.ts'
 import { makePng } from './testutil.ts'
 
 let root = ''
@@ -107,5 +109,133 @@ describe('API', () => {
     expect((await put('1', 'Fra mobil')).status).toBe(409)
     const saved = (await (await app.request(`/api/projects/${p.id}`, as('kari'))).json()) as Project
     expect(saved.name).toBe('Fra PC')
+  })
+})
+
+describe('request log and errors', () => {
+  const lines: LogLine[] = []
+  let store: ProjectStore
+  let logging: ReturnType<typeof createApp>
+  const requests = () => lines.filter((l) => l.msg === 'request')
+
+  beforeAll(async () => {
+    store = await FileStore.open(root)
+    logging = createApp(store, { mode: 'forward' }, { log: (line) => lines.push(line) })
+  })
+  beforeEach(() => {
+    lines.length = 0
+  })
+
+  it('writes one line per request with route, status and user, and nothing of what was sent', async () => {
+    const fd = new FormData()
+    fd.set('name', 'Hemmelig hytte')
+    const created = await logging.request('/api/projects?token=abc123', as('kari', { method: 'POST', body: fd }))
+    const p = (await created.json()) as Project
+    await logging.request(`/api/projects/${p.id}`, as('kari'))
+    await logging.request('/api/projects')
+
+    // The last one never reached an endpoint: the route is the login check that refused it
+    expect(requests()).toEqual([
+      expect.objectContaining({ method: 'POST', route: '/api/projects', path: '/api/projects', status: 201 }),
+      expect.objectContaining({
+        method: 'GET',
+        route: '/api/projects/:id',
+        path: `/api/projects/${p.id}`,
+        user: 'kari',
+      }),
+      expect.objectContaining({
+        level: 'info',
+        method: 'GET',
+        route: '/api/*',
+        path: '/api/projects',
+        status: 401,
+        user: null,
+      }),
+    ])
+    expect(lines).toHaveLength(3)
+    expect(typeof requests()[0]!.ms).toBe('number')
+    const text = JSON.stringify(lines)
+    expect(text).not.toContain('Hemmelig')
+    expect(text).not.toContain('abc123')
+  })
+
+  it('leaves the probes out, but not a health check that fails', async () => {
+    expect((await logging.request('/api/health')).status).toBe(200)
+    expect(lines).toEqual([])
+    expect((await logging.request('/api/health/nothing-here')).status).toBe(401)
+    expect(requests()).toHaveLength(1)
+  })
+
+  it('gives every answer a request id, and keeps one from the gateway when it is usable', async () => {
+    const own = await logging.request('/api/me', as('kari'))
+    expect(own.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/)
+    expect(requests()[0]!.id).toBe(own.headers.get('x-request-id'))
+
+    const kept = await logging.request('/api/me', as('kari', { headers: { 'X-Request-Id': 'gateway-1234abcd' } }))
+    expect(kept.headers.get('x-request-id')).toBe('gateway-1234abcd')
+
+    const replaced = await logging.request(
+      '/api/me',
+      as('kari', { headers: { 'X-Request-Id': 'not "usable" at all' } }),
+    )
+    expect(replaced.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/)
+
+    const plan = await logging.request('/api/projects/p_missing/plan', as('kari'))
+    expect(plan.status).toBe(404)
+    expect(plan.headers.get('x-request-id')).toBe(requests()[3]!.id)
+  })
+
+  it('answers an unforeseen error with a reference, and keeps what it said in the log', async () => {
+    const broken: ProjectStore = Object.assign(Object.create(store) as ProjectStore, {
+      list: () => Promise.reject(new Error('connect ECONNREFUSED 10.0.0.5:5432')),
+    })
+    const failing = createApp(broken, { mode: 'forward' }, { log: (line) => lines.push(line) })
+    const res = await failing.request('/api/projects', as('kari'))
+    expect(res.status).toBe(500)
+    const id = res.headers.get('x-request-id')
+    const body = (await res.json()) as { error: string; requestId: string }
+    expect(body.requestId).toBe(id)
+    expect(body.error).toContain(id)
+    expect(JSON.stringify(body)).not.toContain('ECONNREFUSED')
+
+    expect(lines).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        msg: 'error',
+        id,
+        error: 'Error',
+        detail: 'connect ECONNREFUSED 10.0.0.5:5432',
+      }),
+      expect.objectContaining({
+        level: 'error',
+        msg: 'request',
+        id,
+        route: '/api/projects',
+        status: 500,
+        user: 'kari',
+      }),
+    ])
+  })
+
+  it('keeps the message of an error it raised itself', async () => {
+    const res = await logging.request('/api/projects/p_missing', as('kari'))
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: expect.any(String) as string })
+    expect(lines.filter((l) => l.msg === 'error')).toEqual([])
+  })
+
+  it('answers a body it cannot read with 400, not 500', async () => {
+    const p = await createProject('kari', false)
+    const save = await logging.request(
+      `/api/projects/${p.id}`,
+      as('kari', { method: 'PUT', body: '{"id": ', headers: { 'If-Match': '1', 'Content-Type': 'application/json' } }),
+    )
+    expect(save.status).toBe(400)
+    const upload = await logging.request(
+      `/api/projects/${p.id}/plan`,
+      as('kari', { method: 'PUT', body: 'x', headers: { 'Content-Type': 'multipart/form-data; boundary=none' } }),
+    )
+    expect(upload.status).toBe(400)
+    expect(lines.filter((l) => l.msg === 'error')).toEqual([])
   })
 })
