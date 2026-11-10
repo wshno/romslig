@@ -311,6 +311,13 @@ function TopBar({ save, onRetry }: { save: SaveStatus; onRetry: () => void }) {
           </button>
         ))}
       </div>
+      <button
+        title="Skriv ut: plan med mål, romliste og møbelliste"
+        aria-label="Skriv ut"
+        onClick={() => (window.location.hash = `#/p/${project.id}/print`)}
+      >
+        🖨
+      </button>
       <ApiKeyButton />
       {save.state === 'retrying' || save.state === 'error' ? (
         <button className={`save-state ${save.state}`} title={save.message} onClick={onRetry}>

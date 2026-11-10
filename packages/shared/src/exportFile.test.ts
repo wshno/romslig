@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EXPORT_FORMAT, EXPORT_VERSION, exportFileName, readProjectExport } from './exportFile.ts'
+import { EXPORT_FORMAT, EXPORT_VERSION, exportFileName, fileSlug, readProjectExport } from './exportFile.ts'
 import { emptyScenario, type Project } from './model.ts'
 
 const project = (): Project => {
@@ -49,6 +49,14 @@ describe('exportFileName', () => {
     expect(long).toBe(`romslig-${'𝔸'.repeat(60)}-2026-11-10.json`)
     expect(() => encodeURIComponent(long)).not.toThrow()
     expect(exportFileName(`${'a'.repeat(59)} b`, when)).toBe(`romslig-${'a'.repeat(59)}-2026-11-10.json`)
+  })
+})
+
+describe('fileSlug', () => {
+  it('makes a name safe as one part of a file name, and falls back when nothing is left', () => {
+    expect(fileSlug('Med kjøkkenøy (forslag 2)', 'variant')).toBe('med-kjøkkenøy-forslag-2')
+    expect(fileSlug('../..', 'variant')).toBe('variant')
+    expect(fileSlug('', 'variant')).toBe('variant')
   })
 })
 
