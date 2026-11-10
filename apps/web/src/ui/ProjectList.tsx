@@ -1,6 +1,10 @@
-import { useEffect, useState } from 'react'
-import type { ProjectSummary } from '@romslig/shared'
+import { useEffect, useRef, useState } from 'react'
+import { exportFileName, type ProjectSummary } from '@romslig/shared'
 import { api } from '../api.ts'
+import { saveFile } from '../download.ts'
+
+/** What `busyId` holds while a file is being imported (project ids start with "p_"). */
+const IMPORTING = 'import'
 
 const listFailed = (e: unknown) => `Kunne ikke hente prosjektene: ${(e as Error).message}`
 
@@ -12,9 +16,10 @@ export function ProjectList() {
   const [error, setError] = useState<string | null>(null)
   /** What went wrong with the list or with an action on one of its projects. */
   const [listError, setListError] = useState<string | null>(null)
-  /** The project an action is running on; its buttons wait meanwhile. */
+  /** The project an action is running on (or IMPORTING); its buttons wait meanwhile. */
   const [busyId, setBusyId] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
+  const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     api
@@ -37,16 +42,16 @@ export function ProjectList() {
     }
   }
 
-  /** Runs an action on a project in the list and says so in the list if it fails. */
-  const act = async (p: ProjectSummary, what: string, action: () => Promise<unknown>) => {
-    setBusyId(p.id)
+  /** Runs an action from the list and says so in the list if it fails («Kunne ikke …: why»). */
+  const run = async (id: string, failed: string, action: () => Promise<unknown>) => {
+    setBusyId(id)
     setListError(null)
     let ok = true
     try {
       await action()
     } catch (err) {
       ok = false
-      setListError(`Kunne ikke ${what} «${p.name}»: ${(err as Error).message}`)
+      setListError(`${failed}: ${(err as Error).message}`)
     }
     // Also after a failure, so the list shows what is actually stored. A failure to fetch the
     // list then must not replace the message about the action.
@@ -54,6 +59,17 @@ export function ProjectList() {
     setBusyId(null)
     return ok
   }
+  const act = (p: ProjectSummary, what: string, action: () => Promise<unknown>) =>
+    run(p.id, `Kunne ikke ${what} «${p.name}»`, action)
+
+  const exportProject = (p: ProjectSummary) =>
+    act(p, 'eksportere', async () => {
+      const file = await api.exportFile(p.id)
+      saveFile(exportFileName(p.name, new Date()), new Blob([JSON.stringify(file)], { type: 'application/json' }))
+    })
+
+  const importProject = (file: File) =>
+    run(IMPORTING, `Kunne ikke importere «${file.name}»`, () => api.importFile(file))
 
   const rename = async (e: React.FormEvent, p: ProjectSummary) => {
     e.preventDefault()
@@ -93,7 +109,25 @@ export function ProjectList() {
       </form>
 
       <section className="card">
-        <h2>Prosjekter</h2>
+        <div className="card-head">
+          <h2>Prosjekter</h2>
+          <button disabled={busyId === IMPORTING} onClick={() => importRef.current?.click()}>
+            {busyId === IMPORTING ? 'Importerer…' : 'Importer fra fil'}
+          </button>
+          <input
+            ref={importRef}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            aria-label="Fil å importere"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              // Emptied so that choosing the same file again counts as a change
+              e.target.value = ''
+              if (f) void importProject(f)
+            }}
+          />
+        </div>
         {listError && (
           <p className="error" role="alert">
             {listError}
@@ -133,29 +167,39 @@ export function ProjectList() {
                       <a href={`#/p/${p.id}`}>{p.name}</a>
                       <span className="muted">{new Date(p.updatedAt).toLocaleString('nb-NO')}</span>
                     </div>
-                    <button
-                      className="link"
-                      disabled={busyId === p.id}
-                      onClick={() => setRenaming({ id: p.id, name: p.name })}
-                    >
-                      Gi nytt navn
-                    </button>
-                    <button
-                      className="link"
-                      disabled={busyId === p.id}
-                      onClick={() => void act(p, 'kopiere', () => api.copy(p.id))}
-                    >
-                      Kopier
-                    </button>
-                    <button
-                      className="link danger"
-                      disabled={busyId === p.id}
-                      onClick={() => {
-                        if (confirm(`Slette «${p.name}»?`)) void act(p, 'slette', () => api.remove(p.id))
-                      }}
-                    >
-                      Slett
-                    </button>
+                    <div className="project-actions">
+                      <button
+                        className="link"
+                        disabled={busyId === p.id}
+                        onClick={() => setRenaming({ id: p.id, name: p.name })}
+                      >
+                        Gi nytt navn
+                      </button>
+                      <button
+                        className="link"
+                        disabled={busyId === p.id}
+                        onClick={() => void act(p, 'kopiere', () => api.copy(p.id))}
+                      >
+                        Kopier
+                      </button>
+                      <button
+                        className="link"
+                        disabled={busyId === p.id}
+                        title="Lagrer prosjektet som en fil med varianter, møbler, samtale og plantegning"
+                        onClick={() => void exportProject(p)}
+                      >
+                        Eksporter
+                      </button>
+                      <button
+                        className="link danger"
+                        disabled={busyId === p.id}
+                        onClick={() => {
+                          if (confirm(`Slette «${p.name}»?`)) void act(p, 'slette', () => api.remove(p.id))
+                        }}
+                      >
+                        Slett
+                      </button>
+                    </div>
                   </>
                 )}
               </li>

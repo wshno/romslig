@@ -75,4 +75,54 @@ test.describe('projects', () => {
       for (const id of ids) await removeProject(page.request, id)
     }
   })
+
+  test('a project is exported to a file, and imported from it as a project of its own', async ({ page }, testInfo) => {
+    const name = projectName('eksport')
+    const ids = [await createProject(page, name)]
+    try {
+      await page
+        .locator('.file-button input[type=file]')
+        .setInputFiles({ name: 'plan.png', mimeType: 'image/png', buffer: planPng() })
+      await expect(page.getByRole('button', { name: /Digitaliser med AI/ })).toBeVisible()
+      await saved(page)
+      await page.getByRole('spinbutton', { name: /Takhøyde/ }).fill('2.65')
+      await saved(page)
+
+      await page.goto('/')
+      const rows = page.getByRole('listitem').filter({ hasText: name })
+      const [download] = await Promise.all([
+        page.waitForEvent('download'),
+        rows.getByRole('button', { name: 'Eksporter' }).click(),
+      ])
+      expect(download.suggestedFilename()).toMatch(/^romslig-e2e-eksport-kjøkken-ås-s-\w+-\d{4}-\d\d-\d\d\.json$/)
+      const file = testInfo.outputPath('eksport.json')
+      await download.saveAs(file)
+
+      // The file goes up as a form upload, the way a floor plan does
+      await page.getByLabel('Fil å importere').setInputFiles(file)
+      await expect(rows).toHaveCount(2)
+      const listed = (await (await page.request.get('/api/projects')).json()) as { id: string; name: string }[]
+      ids.push(...listed.filter((p) => p.name === name && p.id !== ids[0]).map((p) => p.id))
+      expect(ids).toHaveLength(2)
+
+      const [original, imported] = await Promise.all(
+        ids.map(async (id) => ({
+          project: (await (await page.request.get(`/api/projects/${id}`)).json()) as Record<string, unknown>,
+          plan: await (await page.request.get(`/api/projects/${id}/plan`)).body(),
+        })),
+      )
+      expect(imported!.project.ceilingHeight).toBe(2.65)
+      expect(imported!.project.scenarios).toEqual(original!.project.scenarios)
+      expect(imported!.project.planImage).toMatchObject({ width: 800, height: 600 })
+      expect(imported!.plan.equals(original!.plan)).toBe(true)
+
+      // The newest is listed first: open it, and it has its plan
+      await rows.first().getByRole('link', { name, exact: true }).click()
+      await expect(page).toHaveURL(new RegExp(`#/p/${ids[1]}$`))
+      await expect(page.locator('.project-name')).toHaveValue(name)
+      await expect(page.getByRole('button', { name: /Digitaliser med AI/ })).toBeVisible()
+    } finally {
+      for (const id of ids) await removeProject(page.request, id)
+    }
+  })
 })

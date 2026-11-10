@@ -1,5 +1,16 @@
 import { Hono } from 'hono'
-import { Project, emptyScenario, newId, planThumbnailSvg } from '@romslig/shared'
+import { bodyLimit } from 'hono/body-limit'
+import {
+  EXPORT_FORMAT,
+  EXPORT_VERSION,
+  Project,
+  emptyScenario,
+  exportFileName,
+  newId,
+  planThumbnailSvg,
+  readProjectExport,
+  type ProjectExport,
+} from '@romslig/shared'
 import { auth, type AuthOptions, type User } from './auth.ts'
 import { HttpError } from './errors.ts'
 import { jsonLog, requestLog, type Log } from './log.ts'
@@ -37,6 +48,9 @@ const defaultPxPerMeter = (width: number, height: number) => Math.max(width, hei
 
 /** Longest project name we store. */
 const MAX_NAME = 200
+
+/** Largest export we read: a floor plan of the largest size as base64, and 4 MB for the project. */
+const MAX_IMPORT_BYTES = Math.ceil(MAX_PLAN_BYTES / 3) * 4 + 4 * 1024 * 1024
 
 export interface AppOptions {
   ai?: AiConfig
@@ -144,16 +158,19 @@ export function createApp(store: ProjectStore, authOpts: AuthOptions, opts: AppO
     return c.json(await store.update(owner(c), { ...project, name }, project.version))
   })
 
-  /** A copy of everything in the project: variants, furniture, chat and the floor plan. */
-  app.post('/projects/:id/copy', async (c) => {
-    const source = await store.get(owner(c), c.req.param('id'))
-    const png = source.planImage
-      ? await store.getPlan(owner(c), source.id).catch((e: unknown) => {
-          // The project says it has a plan, but the image is gone: copy it without one
+  /** The floor plan of a project, or null if it has none (or says it has one that is gone). */
+  const planOf = async (user: string, project: Project) =>
+    project.planImage
+      ? store.getPlan(user, project.id).catch((e: unknown) => {
           if (e instanceof HttpError && e.status === 404) return null
           throw e
         })
       : null
+
+  /** A copy of everything in the project: variants, furniture, chat and the floor plan. */
+  app.post('/projects/:id/copy', async (c) => {
+    const source = await store.get(owner(c), c.req.param('id'))
+    const png = await planOf(owner(c), source)
     const now = new Date().toISOString()
     const suffix = ' (kopi)'
     const copy: Project = {
@@ -181,6 +198,70 @@ export function createApp(store: ProjectStore, authOpts: AuthOptions, opts: AppO
       'Content-Security-Policy': "default-src 'none'",
       'X-Content-Type-Options': 'nosniff',
     })
+  })
+
+  /** The project as one file to keep or to import somewhere else (see ProjectExport). */
+  app.get('/projects/:id/export', async (c) => {
+    const project = await store.get(owner(c), c.req.param('id'))
+    const png = await planOf(owner(c), project)
+    const now = new Date()
+    const file: ProjectExport = {
+      format: EXPORT_FORMAT,
+      version: EXPORT_VERSION,
+      exportedAt: now.toISOString(),
+      project: png ? project : { ...project, planImage: null },
+      plan: png ? Buffer.from(png).toString('base64') : null,
+    }
+    const name = encodeURIComponent(exportFileName(project.name, now))
+    return c.json(file, 200, {
+      'Cache-Control': 'no-store',
+      'Content-Disposition': `attachment; filename="romslig-prosjekt.json"; filename*=UTF-8''${name}`,
+    })
+  })
+
+  /**
+   * Makes a new project from an exported file. The file is checked like a save is (the Project
+   * schema), and the floor plan like an upload. Nothing in it decides the id, owner or version.
+   */
+  const importLimit = bodyLimit({
+    // The form around the file takes a little room of its own
+    maxSize: MAX_IMPORT_BYTES + 64 * 1024,
+    onError: () => {
+      throw new HttpError(413, 'Filen er for stor.')
+    },
+  })
+  app.post('/projects/import', importLimit, async (c) => {
+    const body = await c.req.parseBody().catch((e: unknown) => {
+      if (e instanceof HttpError) throw e
+      return null
+    })
+    const upload = body?.file
+    if (!(upload instanceof File)) throw new HttpError(400, 'Mangler fil.')
+    const read = readProjectExport(await upload.text())
+    if (!read.ok) throw new HttpError(422, read.error)
+    const { project: source, plan } = read.file
+    let png: Uint8Array | null = null
+    if (source.planImage && plan) {
+      png = new Uint8Array(Buffer.from(plan, 'base64'))
+      const { width, height } = readPngSize(png)
+      // The plan is laid under the drawing by these numbers, so they have to be the image's own
+      if (width !== source.planImage.width || height !== source.planImage.height)
+        throw new HttpError(422, 'Plantegningen i filen har andre mål enn prosjektet oppgir.')
+    }
+    const now = new Date().toISOString()
+    const project: Project = {
+      ...source,
+      id: newId('p_'),
+      name: source.name.trim().slice(0, MAX_NAME) || 'Min leilighet',
+      planImage: png && source.planImage ? { ...source.planImage, file: 'plan.png' } : null,
+      activeScenarioId: source.scenarios.some((s) => s.id === source.activeScenarioId)
+        ? source.activeScenarioId
+        : source.scenarios[0]!.id,
+      version: 0,
+      createdAt: now,
+      updatedAt: now,
+    }
+    return c.json(await store.create(owner(c), project, png), 201)
   })
 
   /**
