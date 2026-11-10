@@ -5,6 +5,8 @@ import {
   closestPointOnSegment,
   dist,
   dot,
+  lerp,
+  lineIntersection,
   mul,
   norm,
   pointInPolygon,
@@ -14,6 +16,7 @@ import {
   v,
   wallDir,
 } from './geometry.ts'
+import type { LoweredCeiling } from './installations.ts'
 import type { FurnitureItem, Opening, Room, Scenario, Vec2, Wall } from './model.ts'
 
 export interface Size {
@@ -126,6 +129,82 @@ export function doorSwingPolygon(o: Opening, wall: Wall): Vec2[] | null {
   return [p0, p1, add(p1, mul(n, width)), add(p0, mul(n, width))]
 }
 
+/** How far in front of a door or a doorway the floor has to be free to walk through it. */
+const PASSAGE_DEPTH = 0.6
+/** A doorway with a sill this high is a hatch, not somewhere to walk. */
+const PASSAGE_MAX_SILL = 0.1
+
+/**
+ * The floor that has to stay free to walk through an opening: both sides of a doorway, and the
+ * side of a door its leaf does not swing over (`doorSwingPolygon` covers the other one).
+ */
+export function passagePolygons(o: Opening, wall: Wall): Vec2[][] {
+  if (o.kind === 'window' || o.sill > PASSAGE_MAX_SILL) return []
+  const { start, end } = clampOpening(o, wall)
+  const d = wallDir(wall)
+  const swing = doorSwingNormal(o, wall)
+  const sides = o.kind === 'door' ? [mul(swing, -1)] : [swing, mul(swing, -1)]
+  return sides.map((n) => {
+    const p0 = add(add(wall.a, mul(d, start)), mul(n, wall.thickness / 2))
+    const p1 = add(p0, mul(d, end - start))
+    return [p0, p1, add(p1, mul(n, PASSAGE_DEPTH)), add(p0, mul(n, PASSAGE_DEPTH))]
+  })
+}
+
+/** Something this close to the wall stands in front of the window in it. */
+const WINDOW_DEPTH = 0.3
+/** A sofa back or a screen may reach this far above the sill without covering the window. */
+const WINDOW_SILL_MARGIN = 0.2
+/** Covering less than this share of the window's width is a plant in the window, not a blocked window. */
+const WINDOW_COVERED_SHARE = 0.5
+
+/** The strip along a window, on both sides of the wall, and where the window is along the wall. */
+function windowZone(o: Opening, wall: Wall): { poly: Vec2[]; start: number; end: number; z: [number, number] } | null {
+  if (o.kind !== 'window') return null
+  const { start, end } = clampOpening(o, wall)
+  const d = wallDir(wall)
+  const n = mul(v(d.y, -d.x), wall.thickness / 2 + WINDOW_DEPTH)
+  const p0 = add(wall.a, mul(d, start))
+  const p1 = add(wall.a, mul(d, end))
+  return {
+    poly: [add(p0, n), add(p1, n), sub(p1, n), sub(p0, n)],
+    start,
+    end,
+    z: [o.sill + WINDOW_SILL_MARGIN, o.sill + o.height],
+  }
+}
+
+/** How much of the stretch [start, end] along the wall the polygon covers, seen straight on. */
+function coveredAlongWall(poly: Vec2[], wall: Pick<Wall, 'a' | 'b'>, start: number, end: number): number {
+  const d = wallDir(wall)
+  const along = poly.map((p) => dot(sub(p, wall.a), d))
+  return Math.max(0, Math.min(end, Math.max(...along)) - Math.max(start, Math.min(...along)))
+}
+
+/**
+ * Do two simple polygons share area? Unlike `polygonsOverlap` this also works when one of them is
+ * concave (a lowered ceiling drawn around a corner). `a` is pulled `tolerance` in towards its
+ * middle first, so that standing right next to `b` does not count.
+ */
+export function polygonsShareArea(a: Vec2[], b: Vec2[], tolerance = 0.01): boolean {
+  const c = polygonCentroid(a)
+  const inner = a.map((p) => {
+    const l = dist(p, c)
+    return l <= tolerance ? c : lerp(p, c, tolerance / l)
+  })
+  if (inner.some((p) => pointInPolygon(p, b)) || b.some((p) => pointInPolygon(p, inner))) return true
+  for (let i = 0; i < inner.length; i++) {
+    const p = inner[i]!
+    const r = sub(inner[(i + 1) % inner.length]!, p)
+    for (let j = 0; j < b.length; j++) {
+      const q = b[j]!
+      const hit = lineIntersection(p, r, q, sub(b[(j + 1) % b.length]!, q))
+      if (hit && hit.t > 0 && hit.t < 1 && hit.u > 0 && hit.u < 1) return true
+    }
+  }
+  return false
+}
+
 /** Vertical extent of an item, for telling floor items from wall cabinets. */
 function zRange(item: FurnitureItem, cat: CatalogItem): [number, number] {
   const z0 = cat.elevation ?? 0
@@ -172,14 +251,26 @@ export type FurnitureIssue =
   | { kind: 'overlap'; otherId: string }
   | { kind: 'wall'; wallId: string }
   | { kind: 'door'; openingId: string }
+  /** Stands where you walk through a doorway (`of: 'opening'`), or in front of a door on the side it does not swing to. */
+  | { kind: 'passage'; openingId: string; of: 'door' | 'opening' }
+  /** Covers at least half of a window. */
+  | { kind: 'window'; openingId: string }
+  /** Reaches up into a lowered ceiling whose underside is `height` above the floor. */
+  | { kind: 'ceiling'; ceilingId: string; height: number }
   | { kind: 'clearance'; side: ClearanceSide; blockedBy: { furnitureId: string } | { wallId: string } }
   | { kind: 'outside' }
 
+/** What the checks read from a scenario. Lowered ceilings are optional, so a plain room still fits. */
+export type CheckedScenario = Pick<Scenario, 'furniture' | 'walls' | 'openings' | 'rooms'> & {
+  loweredCeilings?: LoweredCeiling[]
+}
+
 /**
  * Checks every item: collisions with other items and walls, free space in front/at the sides,
- * door swings and whether it stands inside a room.
+ * door swings, the way through doors and doorways, covered windows, lowered ceilings and whether
+ * it stands inside a room.
  */
-export function furnitureIssues(scenario: Pick<Scenario, 'furniture' | 'walls' | 'openings' | 'rooms'>) {
+export function furnitureIssues(scenario: CheckedScenario) {
   const items = scenario.furniture.map((f) => {
     const cat = getCatalogItem(f.catalogId)
     return { f, cat, poly: footprint(f, itemSize(f, cat)), z: zRange(f, cat), zones: clearanceZones(f, cat) }
@@ -190,6 +281,18 @@ export function furnitureIssues(scenario: Pick<Scenario, 'furniture' | 'walls' |
     const poly = wall ? doorSwingPolygon(o, wall) : null
     return poly ? [{ o, poly }] : []
   })
+  const passages = scenario.openings.flatMap((o) => {
+    const wall = scenario.walls.find((w) => w.id === o.wallId)
+    const of = o.kind === 'door' ? ('door' as const) : ('opening' as const)
+    return wall ? passagePolygons(o, wall).map((poly) => ({ o, of, poly })) : []
+  })
+  const windows = scenario.openings.flatMap((o) => {
+    const wall = scenario.walls.find((w) => w.id === o.wallId)
+    const zone = wall ? windowZone(o, wall) : null
+    return wall && zone ? [{ o, wall, ...zone }] : []
+  })
+  // Lowest first, so an item under two of them is measured against the one it meets first
+  const ceilings = [...(scenario.loweredCeilings ?? [])].sort((p, q) => p.height - q.height)
 
   const result = new Map<string, FurnitureIssue[]>()
   for (const a of items) {
@@ -209,8 +312,23 @@ export function furnitureIssues(scenario: Pick<Scenario, 'furniture' | 'walls' |
         for (const { o, poly } of doors) {
           if (polygonsOverlap(a.poly, poly, 0.02)) issues.push({ kind: 'door', openingId: o.id })
         }
+        // One issue per opening, also when the item reaches through it and stands on both sides
+        const blocked = new Set<string>()
+        for (const { o, of, poly } of passages) {
+          if (blocked.has(o.id) || !polygonsOverlap(a.poly, poly, 0.02)) continue
+          blocked.add(o.id)
+          issues.push({ kind: 'passage', openingId: o.id, of })
+        }
+      }
+      for (const win of windows) {
+        if (!zOverlap(a.z, win.z) || !polygonsOverlap(a.poly, win.poly, 0.02)) continue
+        const covered = coveredAlongWall(a.poly, win.wall, win.start, win.end)
+        if (covered >= (win.end - win.start) * WINDOW_COVERED_SHARE)
+          issues.push({ kind: 'window', openingId: win.o.id })
       }
     }
+    const low = ceilings.find((c) => a.z[1] > c.height + 0.005 && polygonsShareArea(a.poly, c.polygon))
+    if (low) issues.push({ kind: 'ceiling', ceilingId: low.id, height: low.height })
     if (onFloor) {
       for (const zone of a.zones) {
         const wall = walls.find(({ poly }) => polygonsOverlap(zone.poly, poly))
@@ -331,7 +449,7 @@ function floorCandidates(poly: Vec2[]): Placement[] {
  * open floor. Returns null if nothing fits.
  */
 export function findFreeSpot(
-  scenario: Pick<Scenario, 'furniture' | 'walls' | 'openings' | 'rooms'>,
+  scenario: CheckedScenario,
   catalogId: string,
   room: Room,
   opts: { size?: Size | null; preferSide?: PlanSide; freeStanding?: boolean } = {},
@@ -382,6 +500,12 @@ export function describeFurnitureIssue(
       return 'Står inni en vegg'
     case 'door':
       return 'Står i slagfeltet til en dør'
+    case 'passage':
+      return issue.of === 'door' ? 'Står i veien foran en dør' : 'Står i veien i en åpning mellom rom'
+    case 'window':
+      return 'Dekker mer enn halve vinduet'
+    case 'ceiling':
+      return `Rekker opp i nedforet tak (${Math.round(issue.height * 100)} cm over gulvet)`
     case 'outside':
       return 'Står utenfor rommene'
     case 'clearance': {
