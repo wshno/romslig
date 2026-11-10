@@ -100,6 +100,7 @@ describe('FileStore ping', () => {
 // Real PostgreSQL from embedded binaries, so no Docker is needed
 let pgServer: EmbeddedPostgres | null = null
 let pgDir = ''
+let closedPg: PostgresStore | null = null
 contract('PostgresStore', async () => {
   pgDir = await mkdtemp(path.join(tmpdir(), 'romslig-pg-'))
   const port = randomInt(55000, 56000)
@@ -116,11 +117,17 @@ contract('PostgresStore', async () => {
   await pgServer.createDatabase('romslig')
   const cfg = { host: 'localhost', port, database: 'romslig', user: 'romslig', password: 'romslig', ssl: false }
   const store = await PostgresStore.open(cfg)
-  // Opening a second time must not re-run applied migrations, and a closed store is not ready
-  const second = await PostgresStore.open(cfg)
-  await second.close()
-  await expect(second.ping()).rejects.toThrow()
+  // Opening a second time must not re-run applied migrations
+  closedPg = await PostgresStore.open(cfg)
+  await closedPg.close()
   return store
+})
+
+describe('PostgresStore ping', () => {
+  it('fails once the pool is closed', async () => {
+    expect(closedPg).not.toBeNull()
+    await expect(closedPg!.ping()).rejects.toThrow()
+  })
 })
 
 afterAll(async () => {
