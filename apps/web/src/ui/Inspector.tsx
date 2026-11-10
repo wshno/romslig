@@ -16,7 +16,7 @@ import { digitizePlan } from '@romslig/ai'
 import { api, preparePlanForAi } from '../api.ts'
 import { withAi } from '../ai/client.ts'
 import { activeScenario, useStore } from '../store.ts'
-import { ROOM_COLORS, ROOM_LABELS, fmtM, fmtM2 } from '../theme.ts'
+import { ROOM_COLORS, ROOM_LABELS, fmtM2 } from '../theme.ts'
 import { FurnitureCatalog, FurnitureList, FurnitureProps } from './FurniturePanel.tsx'
 import { AssistantPanel, NotesList } from './AssistantPanel.tsx'
 import { RecognizePanel } from './RecognizePanel.tsx'
@@ -102,9 +102,13 @@ function WallProps({ wall }: { wall: Wall }) {
   return (
     <div className="props">
       <Header title="Vegg" />
-      <p className="muted">
-        Lengde {fmtM(wallLength(wall))} · {n} åpning(er)
-      </p>
+      <Num
+        label="Lengde"
+        value={wallLength(wall)}
+        commitOnly
+        onChange={(v) => useStore.getState().setWallLength(wall.id, v)}
+      />
+      <p className="muted">{n} åpning(er). Lengden endres fra startpunktet; vegger i den andre enden følger med.</p>
       <Num label="Tykkelse" value={wall.thickness} onChange={(v) => update({ thickness: Math.max(0.03, v) })} />
       <Num label="Høyde" value={wall.height} onChange={(v) => update({ height: Math.max(0.5, v) })} />
       <label className="field">

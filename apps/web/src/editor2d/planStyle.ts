@@ -27,7 +27,7 @@ export function wallQuad(w: Pick<Wall, 'a' | 'b' | 'thickness'>): number[] {
 
 export const HINTS: Record<string, string> = {
   select: 'Klikk for å velge. Dra for å panorere, scroll for å zoome.',
-  wall: 'Klikk for å starte/fortsette vegg. Dobbeltklikk/Esc avslutter. Shift = fri vinkel.',
+  wall: 'Klikk for å starte/fortsette vegg. Skriv lengden (f.eks. 3,2) og trykk Enter. Dobbeltklikk/Esc avslutter. Shift = fri vinkel.',
   door: 'Klikk på en vegg for å sette inn en dør.',
   window: 'Klikk på en vegg for å sette inn et vindu.',
   opening: 'Klikk på en vegg for å sette inn en åpning.',

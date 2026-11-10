@@ -131,4 +131,54 @@ test.describe('editor', () => {
       await removeProject(page.request, id)
     }
   })
+
+  test('types the length of a wall while drawing it, and changes it in the panel', async ({ page }) => {
+    const id = await createProject(page, projectName('lengde'))
+    try {
+      await page.getByRole('button', { name: '2D', exact: true }).click()
+      const click = await drawing(page)
+      const stage = (await page.locator('.plan2d .konvajs-content').boundingBox())!
+      const at = (dx: number, dy: number) =>
+        page.mouse.move(stage.x + stage.width / 2 + dx, stage.y + stage.height / 2 + dy)
+      const lengths = async () =>
+        (await stored(page, id)).scenarios[0]!.walls.map((w) =>
+          Math.round(Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y) * 100),
+        )
+
+      await tool(page, 'Vegg').click()
+      await click(-150, 0)
+      // Toward the right, typed with a comma; then down, typed with a point, corrected with Backspace
+      await at(100, 4)
+      await page.keyboard.type('3,5')
+      await page.keyboard.press('Enter')
+      await at(0, 150)
+      await page.keyboard.type('2.259')
+      await page.keyboard.press('Backspace')
+      await page.keyboard.press('Enter')
+      // The first Escape only drops what was typed, the second ends the wall
+      await page.keyboard.type('7')
+      await page.keyboard.press('Escape')
+      await page.keyboard.press('Escape')
+      await saved(page)
+      await expect.poll(lengths).toEqual([350, 225])
+
+      // In the panel the length is stored when Enter is pressed, not on the way (no 1 m step for "12")
+      await tool(page, 'Velg').click()
+      await click(-140, 0)
+      const length = page.getByRole('spinbutton', { name: 'Lengde' })
+      await expect(length).toHaveValue('3.5')
+      await length.fill('')
+      await length.pressSequentially('12')
+      await length.press('Enter')
+      await saved(page)
+      const walls = async () => (await stored(page, id)).scenarios[0]!.walls
+      await expect.poll(lengths).toContain(1200)
+      // The wall in the corner came along: it still starts where the first one ends
+      const [first, second] = await walls()
+      expect(second!.a.x).toBeCloseTo(first!.b.x, 6)
+      expect(second!.a.y).toBeCloseTo(first!.b.y, 6)
+    } finally {
+      await removeProject(page.request, id)
+    }
+  })
 })

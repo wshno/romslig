@@ -7,6 +7,7 @@ import {
   getCatalogItem,
   itemSize,
   moveWallEndpoint,
+  setWallLength,
   newId,
   redetectRooms,
   removeRoom,
@@ -91,6 +92,8 @@ interface State {
    * drag started: connected walls, openings and rooms are worked out from there on every move.
    */
   dragWallEndpoint(base: Scenario, wallId: string, end: WallEnd, to: Vec2): void
+  /** Moves the wall's end `b` along the wall so it gets this length; attached walls follow. */
+  setWallLength(wallId: string, length: number): void
   addOpening(kind: OpeningKind, wallId: string, offset: number): void
   updateOpening(id: string, patch: Partial<Opening>): void
   addRoom(polygon: Vec2[]): void
@@ -244,6 +247,7 @@ export const useStore = create<State>()(
         }),
       dragWallEndpoint: (base, wallId, end, to) =>
         get().updateScenario((s) => (s.id === base.id ? moveWallEndpoint(base, wallId, end, to) : s)),
+      setWallLength: (wallId, length) => get().updateScenario((s) => setWallLength(s, wallId, length)),
 
       addOpening: (kind, wallId, offset) => {
         const d = DEFAULTS[kind]
