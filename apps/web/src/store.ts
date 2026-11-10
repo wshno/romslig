@@ -134,6 +134,9 @@ interface State {
 export const activeScenario = (p: Project): Scenario =>
   p.scenarios.find((s) => s.id === p.activeScenarioId) ?? p.scenarios[0]!
 
+/** How many undo steps are kept. */
+const HISTORY_LIMIT = 200
+
 export const useStore = create<State>()(
   temporal(
     (set, get) => ({
@@ -401,7 +404,8 @@ export const useStore = create<State>()(
       },
 
       setActiveScenario: (id) => {
-        get().updateProject((p) => ({ ...p, activeScenarioId: id }))
+        // Which variant is shown is not a change to the drawing, so it is not an undo step
+        untracked(() => get().updateProject((p) => ({ ...p, activeScenarioId: id })))
         set({ selection: null })
       },
       duplicateScenario: (name) =>
@@ -426,36 +430,116 @@ export const useStore = create<State>()(
     {
       partialize: (s) => ({ project: s.project }),
       equality: (a, b) => a.project === b.project,
-      limit: 200,
+      limit: HISTORY_LIMIT,
     },
   ),
 )
 
 export const useScenario = () => useStore((s) => (s.project ? activeScenario(s.project) : null))
-export const undo = () => useStore.temporal.getState().undo()
-export const redo = () => useStore.temporal.getState().redo()
+
+/** True when what is selected is still there in the active variant. */
+function selectionExists(p: Project, sel: NonNullable<Selection>): boolean {
+  const s = activeScenario(p)
+  const lists = {
+    wall: s.walls,
+    opening: s.openings,
+    room: s.rooms,
+    furniture: s.furniture,
+    fixture: s.fixtures,
+    run: s.runs,
+    ceiling: s.loweredCeilings,
+  }
+  return lists[sel.kind].some((x) => x.id === sel.id)
+}
+
+// The selection never points at something that is gone (after undo, a variant switch or a change
+// made by the assistant), so the inspector and the keyboard shortcuts always act on something real.
+useStore.subscribe((s, prev) => {
+  if (s.project !== prev.project && s.selection && !(s.project && selectionExists(s.project, s.selection)))
+    useStore.setState({ selection: null })
+})
+
+const history = () => useStore.temporal.getState()
+
+/** Changes the project without leaving an undo step. */
+function untracked(change: () => void) {
+  const h = history()
+  if (!h.isTracking) return change()
+  h.pause()
+  try {
+    change()
+  } finally {
+    h.resume()
+  }
+}
+
+export const undo = () => {
+  endGesture()
+  history().undo()
+}
+export const redo = () => {
+  endGesture()
+  history().redo()
+}
+
+/** Forgets the undo history (a project was loaded). */
+export function resetHistory() {
+  gesture = null
+  history().resume()
+  history().clear()
+}
 
 /**
- * Groups continuous edits (dragging) into a single undo step: call beginGesture()
- * on drag start and endGesture() on drag end.
+ * Groups continuous edits (dragging) into a single undo step: call beginGesture() on drag start
+ * and endGesture() on drag end. Gestures do not nest: starting one ends the one that was open.
  */
-let gestureSnapshot: Project | null = null
+let gesture: { start: Project | null } | null = null
 export function beginGesture() {
-  gestureSnapshot = useStore.getState().project
-  useStore.temporal.getState().pause()
+  endGesture()
+  gesture = { start: useStore.getState().project }
+  history().pause()
 }
 export function endGesture() {
-  const t = useStore.temporal.getState()
-  const final = useStore.getState().project
-  if (gestureSnapshot && final !== gestureSnapshot) {
-    useStore.setState({ project: gestureSnapshot })
-    t.resume()
-    useStore.setState({ project: final })
-  } else t.resume()
-  gestureSnapshot = null
+  if (!gesture) return
+  const { start } = gesture
+  gesture = null
+  history().resume()
+  // The whole gesture is one change: from the project as it was when it started
+  if (start && useStore.getState().project !== start)
+    useStore.temporal.setState((h) => ({
+      pastStates: [...h.pastStates, { project: start }].slice(-HISTORY_LIMIT),
+      futureStates: [],
+    }))
 }
 
-if (import.meta.env.DEV) (window as unknown as { __romslig: unknown }).__romslig = useStore
+/**
+ * Lets a run of changes share one undo step, such as the keystrokes in a field: call before()
+ * right before each change and after() right after it. The first change makes a step as usual.
+ * The following ones join it for as long as that step is the newest one, so a change made by
+ * something else in between (or an undo) starts a new step.
+ */
+export function mergeSteps() {
+  let own: unknown = null
+  let top: unknown = null
+  let joining = false
+  const newest = () => history().pastStates.at(-1) ?? null
+  return {
+    before() {
+      if (joining) history().resume() // after() was never reached, e.g. the change threw
+      top = newest()
+      joining = own !== null && top === own && history().isTracking
+      if (joining) history().pause()
+    },
+    after() {
+      if (joining) {
+        joining = false
+        history().resume()
+      } else if (newest() !== top) own = newest()
+    },
+  }
+}
+
+if (import.meta.env.DEV) (globalThis as unknown as { __romslig: unknown }).__romslig = useStore
 
 // Keep the editor state when Vite hot-replaces this module (e.g. after an edit in packages/shared),
 // instead of falling back to an empty store that shows «Laster prosjekt…» until a reload.
