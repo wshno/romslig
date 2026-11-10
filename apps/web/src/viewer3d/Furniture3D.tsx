@@ -30,6 +30,8 @@ export function Furniture3D({ item, hasIssues, selected }: Props) {
 
   const onPointerDown = (e: ThreeEvent<PointerEvent>) => {
     if (useStore.getState().tool !== 'select') return
+    // Behind a wall or under a floor seen from this side: the click selects that, so leave the press to it too
+    if (e.intersections[0]?.eventObject !== e.eventObject) return
     e.stopPropagation()
     useStore.getState().select({ kind: 'furniture', id: item.id })
     if (!e.ray.intersectPlane(FLOOR, hit)) return
@@ -59,6 +61,10 @@ export function Furniture3D({ item, hasIssues, selected }: Props) {
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      // The press selected this piece: keep the click from going on to the floor or wall behind it
+      onClick={(e) => {
+        if (useStore.getState().tool === 'select') e.stopPropagation()
+      }}
     >
       <Shape cat={cat} size={size} tint={tint} />
     </group>

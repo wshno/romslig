@@ -15,6 +15,9 @@ import { ROOM_COLORS } from '../theme.ts'
 
 type CameraMode = 'orbit' | 'walk'
 
+/** The pointer may move this far between press and release and still count as a click (px). */
+const DRAG_SLOP = 4
+
 export function Viewer3D() {
   const scenario = useScenario()
   const [mode, setMode] = useState<CameraMode>('orbit')
@@ -26,6 +29,8 @@ export function Viewer3D() {
   const showInstallations = useStore((s) => s.showInstallations)
   const ceilingHeight = useStore((s) => s.project?.ceilingHeight ?? 2.4)
   const pickRef = useRef<FloorPick | null>(null)
+  /** Where the mouse button went down, to tell a click from the end of a drag. */
+  const pressRef = useRef({ x: 0, y: 0 })
 
   const bounds = useMemo(() => {
     const pts = scenario?.walls.flatMap((w) => [w.a, w.b]) ?? []
@@ -40,6 +45,15 @@ export function Viewer3D() {
   return (
     <div
       className="viewer3d"
+      onPointerDownCapture={(e) => {
+        pressRef.current = { x: e.clientX, y: e.clientY }
+      }}
+      onClickCapture={(e) => {
+        // Turning the view or moving a piece of furniture also ends in a click. It is not a selection:
+        // keep it from the 3D scene, where it would select whatever is under the pointer.
+        const moved = Math.hypot(e.clientX - pressRef.current.x, e.clientY - pressRef.current.y)
+        if (moved > DRAG_SLOP && e.target instanceof HTMLCanvasElement) e.stopPropagation()
+      }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes(FURNITURE_DND_TYPE)) e.preventDefault()
       }}
@@ -54,6 +68,8 @@ export function Viewer3D() {
     >
       <Canvas
         shadows
+        // A click that hits nothing selectable (the ground, the sky) lets go of the selection, as in 2D
+        onPointerMissed={() => useStore.getState().select(null)}
         camera={{
           fov: 50,
           near: 0.05,
