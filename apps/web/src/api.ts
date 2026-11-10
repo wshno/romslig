@@ -1,5 +1,5 @@
 import { digitizeScale, type PlanImageInput } from '@romslig/ai'
-import type { Project, ProjectSummary } from '@romslig/shared'
+import type { Project, ProjectExport, ProjectSummary } from '@romslig/shared'
 
 /** An error response from our API, with its HTTP status (e.g. 409 when another device saved first). */
 export class ApiError extends Error {
@@ -86,6 +86,14 @@ export const api = {
   /** A small SVG drawing of the active variant. `updatedAt` makes the address change when the project does. */
   thumbnailUrl: (p: Pick<ProjectSummary, 'id' | 'updatedAt'>) =>
     `/api/projects/${p.id}/thumbnail?v=${encodeURIComponent(p.updatedAt)}`,
+  /** Everything in the project, floor plan included, as the content of the file «Eksporter» saves. */
+  exportFile: (id: string) => req<ProjectExport>(`/api/projects/${id}/export`),
+  /** Makes a new project from an exported file. The server checks the file. */
+  importFile: (file: File) => {
+    const fd = new FormData()
+    fd.set('file', file)
+    return req<Project>('/api/projects/import', { method: 'POST', body: fd })
+  },
 }
 
 /**

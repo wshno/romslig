@@ -187,6 +187,142 @@ describe('API', () => {
     expect((await thumbnail('ola')).status).toBe(404)
   })
 
+  const exportOf = async (user: string, id: string) => {
+    const res = await app.request(`/api/projects/${id}/export`, as(user))
+    expect(res.status).toBe(200)
+    return { res, file: (await res.json()) as import('@romslig/shared').ProjectExport }
+  }
+  const importFile = (user: string, content: unknown) => {
+    const fd = new FormData()
+    const text = typeof content === 'string' ? content : JSON.stringify(content)
+    fd.set('file', new File([text], 'eksport.json', { type: 'application/json' }))
+    return app.request('/api/projects/import', as(user, { method: 'POST', body: fd }))
+  }
+  const listOf = async (user: string) =>
+    (await (await app.request('/api/projects', as(user))).json()) as ProjectSummary[]
+
+  it('exports a project as one file and imports it as a new project, also for someone else', async () => {
+    const p = await createProject('kari')
+    const walls = [{ id: 'w1', a: { x: 0, y: 0 }, b: { x: 5, y: 0 }, thickness: 0.2, height: 2.4 }]
+    const edited = {
+      ...p,
+      name: 'Hytta på fjellet (Ål)',
+      ceilingHeight: 2.7,
+      scenarios: [{ ...p.scenarios[0]!, walls }],
+    }
+    const save = await app.request(
+      `/api/projects/${p.id}`,
+      as('kari', {
+        method: 'PUT',
+        body: JSON.stringify(edited),
+        headers: { 'Content-Type': 'application/json', 'If-Match': '1' },
+      }),
+    )
+    expect(save.status).toBe(200)
+
+    const { res, file } = await exportOf('kari', p.id)
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    expect(res.headers.get('content-disposition')).toMatch(
+      /^attachment; filename="romslig-prosjekt\.json"; filename\*=UTF-8''romslig-hytta-p%C3%A5-fjellet-%C3%A5l-\d{4}-\d\d-\d\d\.json$/,
+    )
+    expect(file).toMatchObject({ format: 'romslig-project', version: 1, project: { id: p.id, name: edited.name } })
+    const stored = new Uint8Array(await (await app.request(`/api/projects/${p.id}/plan`, as('kari'))).arrayBuffer())
+    expect(Buffer.from(file.plan!, 'base64').equals(Buffer.from(stored))).toBe(true)
+    expect((await app.request(`/api/projects/${p.id}/export`, as('ola'))).status).toBe(404)
+
+    const before = (await listOf('kari')).length
+    const imported = await importFile('ola', file)
+    expect(imported.status).toBe(201)
+    const copy = (await imported.json()) as Project
+    expect(copy.id).not.toBe(p.id)
+    expect(copy).toMatchObject({
+      name: edited.name,
+      version: 1,
+      ceilingHeight: 2.7,
+      calibration: p.calibration,
+      planImage: { file: 'plan.png', width: 400, height: 300 },
+      scenarios: [{ id: p.scenarios[0]!.id, walls }],
+    })
+    expect(copy.createdAt >= p.createdAt).toBe(true)
+    const plan = await app.request(`/api/projects/${copy.id}/plan`, as('ola'))
+    expect(Buffer.from(await plan.arrayBuffer()).equals(Buffer.from(stored))).toBe(true)
+    // It is Ola's project now, and Kari has what she had
+    expect((await app.request(`/api/projects/${copy.id}`, as('kari'))).status).toBe(404)
+    expect(await listOf('kari')).toHaveLength(before)
+
+    // A project without a plan exports and imports without one
+    const bare = await createProject('kari', false)
+    const bareFile = (await exportOf('kari', bare.id)).file
+    expect(bareFile.plan).toBeNull()
+    expect(((await (await importFile('kari', bareFile)).json()) as Project).planImage).toBeNull()
+  })
+
+  it('lets nothing in an imported file decide the id, version or owner', async () => {
+    const victim = await createProject('kari')
+    const { file } = await exportOf('kari', victim.id)
+    const hostile = {
+      ...file,
+      project: { ...file.project, name: '   ', version: 99, activeScenarioId: 'finnes-ikke', ownerId: 'kari' },
+    }
+    const res = await importFile('ola', hostile)
+    expect(res.status).toBe(201)
+    const made = (await res.json()) as Project
+    expect(made.id).not.toBe(victim.id)
+    expect(made).toMatchObject({ name: 'Min leilighet', version: 1, activeScenarioId: victim.scenarios[0]!.id })
+    expect(made).not.toHaveProperty('ownerId')
+    const untouched = (await (await app.request(`/api/projects/${victim.id}`, as('kari'))).json()) as Project
+    expect(untouched).toEqual(victim)
+
+    // The file says there is a plan but carries none, or carries one the project does not mention
+    const noImage = (await (await importFile('ola', { ...file, plan: null })).json()) as Project
+    expect(noImage.planImage).toBeNull()
+    const noMention = await importFile('ola', { ...file, project: { ...file.project, planImage: null } })
+    const stray = (await noMention.json()) as Project
+    expect(stray.planImage).toBeNull()
+    expect((await app.request(`/api/projects/${stray.id}/plan`, as('ola'))).status).toBe(404)
+
+    const long = await importFile('ola', { ...file, project: { ...file.project, name: 'x'.repeat(300) } })
+    expect(((await long.json()) as Project).name).toHaveLength(200)
+  })
+
+  it('refuses a file that is not a sound export, and makes no project from it', async () => {
+    const p = await createProject('nora')
+    const { file } = await exportOf('nora', p.id)
+    const before = (await listOf('nora')).length
+    const refused = async (content: unknown, status: number, message: RegExp) => {
+      const res = await importFile('nora', content)
+      expect(res.status).toBe(status)
+      expect(((await res.json()) as { error: string }).error).toMatch(message)
+    }
+    await refused('ikke json', 422, /ikke en Romslig-eksport/)
+    await refused(p, 422, /ikke en Romslig-eksport/)
+    await refused({ ...file, version: 2 }, 422, /nyere versjon/)
+    await refused(
+      { ...file, project: { ...file.project, scenarios: [] } },
+      422,
+      /skadet eller endret \(project\.scenarios/,
+    )
+    await refused({ ...file, plan: Buffer.from('ikke et bilde, bare tekst').toString('base64') }, 400, /PNG/)
+    await refused({ ...file, plan: '%%%' }, 400, /PNG/)
+    const other = Buffer.from(makePng(500, 300)).toString('base64')
+    await refused({ ...file, plan: other }, 422, /andre mål/)
+
+    const noFile = new FormData()
+    noFile.set('file', 'tekst, ikke en fil')
+    expect((await app.request('/api/projects/import', as('nora', { method: 'POST', body: noFile }))).status).toBe(400)
+    const json = as('nora', {
+      method: 'POST',
+      body: JSON.stringify(file),
+      headers: { 'Content-Type': 'application/json' },
+    })
+    expect((await app.request('/api/projects/import', json)).status).toBe(400)
+    expect((await app.request('/api/projects/import', { method: 'POST', body: noFile })).status).toBe(401)
+
+    const big = await importFile('nora', 'x'.repeat(25 * 1024 * 1024))
+    expect(big.status).toBe(413)
+    expect(await listOf('nora')).toHaveLength(before)
+  })
+
   it('requires If-Match on save and reports conflicts', async () => {
     const p = await createProject('kari', false)
     const put = (version: string | null, name: string) =>
