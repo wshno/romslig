@@ -57,8 +57,29 @@ Proxyen har grenser, så serverens nøkkel ikke kan brukes til hva som helst:
 
 De to tallgrensene er standarder i koden (`AI_MAX_TOKENS` og `AI_RATE_PER_MIN`) og settes ikke i manifestene. Substitusjon gjør tallverdier om til tall, mens Kubernetes krever strenger i `env`.
 
-Hver forespørsel logges med én linje: bruker, modell, status og antall tokens. Innhold og nøkler logges
-aldri.
+Hver forespørsel gjennom proxyen gir en egen logglinje (`msg: "ai"`) med bruker, modell, status og antall
+tokens. Innhold og nøkler logges aldri. Se [Logg](#logg).
+
+## Logg
+
+API-et skriver én JSON-linje per hendelse til stdout, som klyngens collector sender videre til Loki.
+Linjene inneholder aldri det som ble sendt eller lagret (prosjekter, bilder, meldinger, nøkler), og heller
+ikke spørrestrengen.
+
+| `msg`       | Når                                                | Felter                                                                                   |
+| ----------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `request`   | Hver forespørsel er besvart                        | `id`, `method`, `route`, `path`, `status`, `ms`, `user`                                  |
+| `error`     | En feil koden ikke hadde forutsett (svaret er 500) | `id`, `error`, `detail`, `stack`                                                         |
+| `ai`        | En forespørsel gjennom AI-proxyen er ferdig        | `id`, `user`, `model`, `status`, `input_tokens`, `output_tokens`, ev. `aborted`, `error` |
+| `listening` | Oppstart                                           | `version`, `sha`, `auth`, `group`, `storage`, `ai`, `aiGroup`                            |
+| `config`    | Advarsel om oppsettet ved oppstart                 | `detail`                                                                                 |
+
+- Alle linjer har `time` og `level` (`info`, `warn` eller `error`; `request` er `error` ved status 500 og over).
+- `id` er forespørselens id. Den sendes tilbake i `X-Request-Id`, og en id gatewayen allerede har satt,
+  beholdes. Et 500-svar inneholder bare en generell melding og denne id-en (`requestId`); selve feilen
+  står i `error`-linjen med samme `id`.
+- `route` er mønsteret som svarte (`/api/projects/:id`). Stoppet innloggingen forespørselen, er det `/api/*`.
+- Vellykkede kall til `/api/health` logges ikke.
 
 ## Kontrakt
 

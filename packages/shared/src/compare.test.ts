@@ -66,7 +66,79 @@ describe('compareScenarios', () => {
     )
     expect(c.flags.join(' ')).toMatch(/RIB/)
     expect(c.flags.join(' ')).toMatch(/Våtrom/)
-    expect(c.furniture).toEqual({ added: ['Lenestol'], removed: [], moved: ['Min sofa'] })
+    expect(c.furniture).toMatchObject({ added: ['Lenestol'], removed: [], moved: ['Min sofa'] })
+  })
+})
+
+describe('furniture changes per room', () => {
+  const item = (id: string, catalogId: string, x: number, y = 1) => ({
+    id,
+    catalogId,
+    x,
+    y,
+    rotation: 0,
+    roomId: null,
+    size: null,
+    label: null,
+  })
+  const roomId = (s: Scenario, name: string) => s.rooms.find((r) => r.name === name)!.id
+
+  it('is empty when no furniture changed', () => {
+    const a = base()
+    expect(compareScenarios(a, structuredClone(a)).furniture.byRoom).toEqual([])
+  })
+
+  it('groups by room and counts items of the same name', () => {
+    const a = { ...base(), furniture: [item('old', 'lenestol', 1), item('gone', 'lenestol', 5)] }
+    const b = {
+      ...structuredClone(a),
+      furniture: [
+        item('old', 'lenestol', 1),
+        item('n1', 'nattbord', 0.5),
+        item('n2', 'nattbord', 2.5),
+        item('n3', 'sofa-3', 1.5, 2),
+      ],
+    }
+    expect(compareScenarios(a, b).furniture.byRoom).toEqual([
+      {
+        roomId: roomId(a, 'Stue'),
+        room: 'Stue',
+        added: [
+          { name: 'Nattbord', count: 2 },
+          { name: 'Sofa, 3-seter', count: 1 },
+        ],
+        removed: [],
+        moved: [],
+      },
+      { roomId: roomId(a, 'Bad'), room: 'Bad', added: [], removed: [{ name: 'Lenestol', count: 1 }], moved: [] },
+    ])
+  })
+
+  it('says where an item came from when it changed room, and puts items outside every room last', () => {
+    const a = { ...base(), furniture: [item('s', 'lenestol', 1), item('t', 'lenestol', 2), item('u', 'nattbord', 5)] }
+    const b = {
+      ...structuredClone(a),
+      furniture: [item('s', 'lenestol', 5), item('t', 'lenestol', 2, 2), item('u', 'nattbord', 9)],
+    }
+    expect(compareScenarios(a, b).furniture.byRoom).toEqual([
+      { roomId: roomId(a, 'Stue'), room: 'Stue', added: [], removed: [], moved: [{ name: 'Lenestol', count: 1 }] },
+      {
+        roomId: roomId(a, 'Bad'),
+        room: 'Bad',
+        added: [],
+        removed: [],
+        moved: [{ name: 'Lenestol', count: 1, from: 'Stue' }],
+      },
+      { roomId: null, room: null, added: [], removed: [], moved: [{ name: 'Nattbord', count: 1, from: 'Bad' }] },
+    ])
+  })
+
+  it('files a removed item under the room that took over when its room is gone', () => {
+    const a = { ...base(), furniture: [item('x', 'lenestol', 5)] }
+    const b = { ...redetectRooms({ ...structuredClone(a), walls: a.walls.filter((w) => w.id !== 'm') }), furniture: [] }
+    const [group] = compareScenarios(a, b).furniture.byRoom
+    expect(group!.removed).toEqual([{ name: 'Lenestol', count: 1 }])
+    expect(a.rooms.map((r) => r.name)).toContain(group!.room)
   })
 })
 

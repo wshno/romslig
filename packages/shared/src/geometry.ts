@@ -57,6 +57,23 @@ export function pointInPolygon(p: Vec2, poly: Vec2[]): boolean {
   return inside
 }
 
+/**
+ * A point that lies inside the polygon. The centroid of an L- or U-shaped room can fall outside
+ * it, so then the centre of the first corner triangle that is inside is used.
+ */
+export function interiorPoint(poly: Vec2[]): Vec2 {
+  const c = polygonCentroid(poly)
+  if (poly.length < 4 || pointInPolygon(c, poly)) return c
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]!
+    const q = poly[(i + 1) % poly.length]!
+    const r = poly[(i + 2) % poly.length]!
+    const m = v((p.x + q.x + r.x) / 3, (p.y + q.y + r.y) / 3)
+    if (pointInPolygon(m, poly)) return m
+  }
+  return c
+}
+
 export function closestPointOnSegment(p: Vec2, a: Vec2, b: Vec2): { point: Vec2; t: number; dist: number } {
   const ab = sub(b, a)
   const l2 = dot(ab, ab)
@@ -140,11 +157,21 @@ export interface WallPiece {
   z1: number
 }
 
-export function clampOpening(o: Opening, wall: Wall): { start: number; end: number } {
+/**
+ * The opening as it fits in its wall: no wider than the wall, and inside it from end to end.
+ * Returns the same object when it already fits.
+ */
+export function fitOpening<T extends Pick<Opening, 'offset' | 'width'>>(o: T, wall: Pick<Wall, 'a' | 'b'>): T {
   const L = wallLength(wall)
-  const w = Math.min(o.width, L)
-  const c = Math.max(w / 2, Math.min(L - w / 2, o.offset))
-  return { start: c - w / 2, end: c + w / 2 }
+  if (L <= 0) return o
+  const width = Math.min(o.width, L)
+  const offset = Math.max(width / 2, Math.min(L - width / 2, o.offset))
+  return width === o.width && offset === o.offset ? o : { ...o, width, offset }
+}
+
+export function clampOpening(o: Opening, wall: Wall): { start: number; end: number } {
+  const { offset, width } = fitOpening(o, wall)
+  return { start: offset - width / 2, end: offset + width / 2 }
 }
 
 export function wallPieces(wall: Wall, openings: Opening[]): WallPiece[] {
