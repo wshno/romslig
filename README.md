@@ -27,7 +27,7 @@ Se [deploy/README.md](deploy/README.md) for `AI_GROUP` og grensene i proxyen.
 3. **Digitaliser med AI**: Claude foreslår vegger, dører, vinduer og rom (oransje overlegg). Godta eller forkast.
    Alternativt kan du tegne selv: Vegg (W), Dør (D), Vindu (N), Åpning (O), Rom (R).
 4. **Finn rom automatisk**: rom beregnes fra veggene (målt til innvendig veggflate), og avvik mot oppgitt m² vises.
-5. **Møbler**: dra fra katalogen inn i 2D/3D. Møblene snapper mot vegg, og kollisjon, fri plass og dørslag sjekkes.
+5. **Møbler**: dra fra katalogen inn i 2D/3D. Møblene snapper mot vegg. Appen sier fra om kollisjoner, for lite fri plass, møbler i slagfeltet til en dør eller i veien for en døråpning, møbler som dekker et vindu og møbler som er for høye for nedforet tak.
 6. **Bilder**: på et rom kan du laste opp bilder, så gjenkjenner AI-en møblene og legger dem inn.
 7. **Assistent**: still spørsmål eller be om forslag. Konkrete forslag lages som nye varianter.
 8. **Varianter**: kopier «Eksisterende» og prøv endringer (f.eks. riv en vegg) uten å røre originalen.

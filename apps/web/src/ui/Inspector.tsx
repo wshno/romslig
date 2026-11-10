@@ -4,6 +4,7 @@ import {
   areaDeviation,
   polygonArea,
   wallLength,
+  withOpeningKind,
   type LoadBearing,
   type Opening,
   type OpeningKind,
@@ -20,6 +21,7 @@ import { FurnitureCatalog, FurnitureList, FurnitureProps } from './FurniturePane
 import { AssistantPanel, NotesList } from './AssistantPanel.tsx'
 import { RecognizePanel } from './RecognizePanel.tsx'
 import { CeilingProps, FixtureProps, InstallationsOverview, RunProps } from './InstallationsPanel.tsx'
+import { Num } from './fields.tsx'
 
 export function Inspector() {
   const project = useStore((s) => s.project)!
@@ -33,19 +35,19 @@ export function Inspector() {
   const setTab = useStore((s) => s.setInspectorTab)
   const tabs = { oversikt: <Overview />, moebler: <FurnitureTab />, assistent: <AssistantPanel /> }
   let content = tabs[tab]
-  if (wall) content = <WallProps wall={wall} />
-  else if (opening) content = <OpeningProps o={opening} />
-  else if (room) content = <RoomProps room={room} />
-  else if (furniture) content = <FurnitureProps item={furniture} />
+  if (wall) content = <WallProps key={wall.id} wall={wall} />
+  else if (opening) content = <OpeningProps key={opening.id} o={opening} />
+  else if (room) content = <RoomProps key={room.id} room={room} />
+  else if (furniture) content = <FurnitureProps key={furniture.id} item={furniture} />
   else if (selection?.kind === 'fixture') {
     const fx = scenario.fixtures.find((x) => x.id === selection.id)
-    if (fx) content = <FixtureProps fx={fx} />
+    if (fx) content = <FixtureProps key={fx.id} fx={fx} />
   } else if (selection?.kind === 'run') {
     const run = scenario.runs.find((x) => x.id === selection.id)
-    if (run) content = <RunProps run={run} />
+    if (run) content = <RunProps key={run.id} run={run} />
   } else if (selection?.kind === 'ceiling') {
     const c = scenario.loweredCeilings.find((x) => x.id === selection.id)
-    if (c) content = <CeilingProps ceiling={c} />
+    if (c) content = <CeilingProps key={c.id} ceiling={c} />
   }
   return (
     <aside className="inspector">
@@ -76,41 +78,6 @@ function FurnitureTab() {
         <FurnitureList />
       </section>
     </div>
-  )
-}
-
-function Num({
-  label,
-  value,
-  onChange,
-  step = 0.01,
-  unit = 'm',
-  min,
-}: {
-  label: string
-  value: number
-  onChange(v: number): void
-  step?: number
-  unit?: string
-  min?: number
-}) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <span className="num">
-        <input
-          type="number"
-          step={step}
-          min={min}
-          value={Math.round(value * 1000) / 1000}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value)
-            if (!Number.isNaN(v)) onChange(v)
-          }}
-        />
-        <em>{unit}</em>
-      </span>
-    </label>
   )
 }
 
@@ -170,7 +137,7 @@ function OpeningProps({ o }: { o: Opening }) {
       <Header title={KIND_LABEL[o.kind]} />
       <label className="field">
         <span>Type</span>
-        <select value={o.kind} onChange={(e) => update({ kind: e.target.value as OpeningKind })}>
+        <select value={o.kind} onChange={(e) => update(withOpeningKind(o, e.target.value as OpeningKind))}>
           {Object.entries(KIND_LABEL).map(([k, l]) => (
             <option key={k} value={k}>
               {l}

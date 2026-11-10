@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, api } from '../api.ts'
+import { api } from '../api.ts'
 import { Plan2D } from '../editor2d/Plan2D.tsx'
 import { Viewer3D } from '../viewer3d/Viewer3D.tsx'
-import { activeScenario, redo, undo, useStore, type Tool, type ViewMode } from '../store.ts'
+import { activeScenario, redo, resetHistory, undo, useStore, type Tool, type ViewMode } from '../store.ts'
+import { useHistory, useTypingAsOneUndoStep } from '../hooks.ts'
 import { Inspector } from './Inspector.tsx'
 import { CompareView } from './CompareView.tsx'
 import { ApiKeyButton, ApiKeyDialog } from './ApiKeyDialog.tsx'
 import { loadConfig, useAi } from '../ai/client.ts'
+import { Saver, type SaveState } from '../saver.ts'
 import {
   FIXTURE_INFO,
   FIXTURE_KINDS,
@@ -32,99 +34,109 @@ const TOOLS: { id: Tool; label: string; icon: string; key: string }[] = [
   { id: 'ceiling', label: 'Himling', icon: '▥', key: 'h' },
 ]
 
-type SaveState = 'saved' | 'saving' | 'error' | 'conflict'
 const SAVE_LABELS: Record<SaveState, string> = {
   saved: 'Lagret',
   saving: 'Lagrer…',
-  error: 'Feil ved lagring',
+  retrying: 'Ikke lagret, prøver igjen',
+  error: 'Ikke lagret – prøv igjen',
   conflict: 'Ikke lagret (konflikt)',
 }
+
+interface SaveStatus {
+  state: SaveState
+  /** What went wrong, for `retrying` and `error`. */
+  message?: string
+}
+
+/**
+ * Saves that were still on their way when an editor was closed, by project id. Opening the same
+ * project again waits for its save, so it neither shows the old copy nor conflicts with itself.
+ */
+const leaving = new Map<string, Promise<void>>()
 
 export function Editor({ projectId }: { projectId: string }) {
   const project = useStore((s) => s.project)
   const [error, setError] = useState<string | null>(null)
-  const [save, setSave] = useState<SaveState>('saved')
+  const [save, setSave] = useState<SaveStatus>({ state: 'saved' })
   const inspectorWide = useStore((s) => s.inspectorTab === 'assistent' && !s.selection)
   const keyDialogOpen = useAi((s) => s.keyDialogOpen)
+  const typing = useTypingAsOneUndoStep()
 
   // AI mode (byok or server) for the key button and the AI panels
   useEffect(() => {
     loadConfig().catch((e: unknown) => console.warn('config:', e))
   }, [])
 
-  const [conflict, setConflict] = useState(false)
-  /** Server version the next save must match (If-Match). */
-  const versionRef = useRef(0)
-  /** True right after loading, so the load itself is not saved back. */
-  const skipSaveRef = useRef(true)
-  /** Saves run one after another, so two quick saves never race each other into a false conflict. */
-  const queueRef = useRef<Promise<void>>(Promise.resolve())
-  const conflictRef = useRef(false)
+  const saverRef = useRef<Saver | null>(null)
+  /** True while a project from the server is put into the store, so the load is not saved back. */
+  const loadingRef = useRef(false)
 
-  const loadFromServer = async () => {
+  const loadFromServer = async (saver: Saver) => {
+    await leaving.get(projectId)
     const p = await api.get(projectId)
-    versionRef.current = p.version
-    skipSaveRef.current = true
-    useStore.getState().load(p)
-    useStore.temporal.getState().clear()
+    if (saverRef.current !== saver) return // the editor was closed while the project was on its way
+    loadingRef.current = true
+    try {
+      useStore.getState().load(p)
+      resetHistory()
+    } finally {
+      loadingRef.current = false
+    }
+    saver.loaded(p.version)
   }
 
-  // Load
+  // Load, autosave, and save what is left when the editor is closed
   useEffect(() => {
+    const saver = new Saver({
+      current: () => useStore.getState().project,
+      save: api.save,
+      onState: (state, message) => {
+        setSave({ state, message })
+        if (state === 'error') setError(message ?? null)
+      },
+    })
+    saverRef.current = saver
     useStore.setState({ project: null })
-    loadFromServer().catch((e) => setError(e.message))
-    // eslint-disable-next-line @eslint-react/exhaustive-deps -- reload only when the project id changes
+    loadFromServer(saver).catch((e) => setError(e.message))
+
+    const unsubscribe = useStore.subscribe((s, prev) => {
+      if (s.project && s.project !== prev.project && !loadingRef.current) saver.changed()
+    })
+    // A tab that is hidden may never come back (phone, closed laptop): don't wait for the quiet moment
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') void saver.flush()
+    }
+    // Closing the tab cannot wait for a request, so ask first when something is not saved yet
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!saver.unsaved) return
+      void saver.flush()
+      e.preventDefault()
+    }
+    document.addEventListener('visibilitychange', onHidden)
+    window.addEventListener('beforeunload', onBeforeUnload)
+
+    return () => {
+      unsubscribe()
+      document.removeEventListener('visibilitychange', onHidden)
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      saverRef.current = null
+      const done = saver.leave()
+      leaving.set(projectId, done)
+      void done.finally(() => {
+        if (leaving.get(projectId) === done) leaving.delete(projectId)
+      })
+    }
+    // eslint-disable-next-line @eslint-react/exhaustive-deps -- one saver per opened project
   }, [projectId])
 
-  const saveNow = () => {
-    queueRef.current = queueRef.current.then(async () => {
-      const current = useStore.getState().project
-      if (!current || conflictRef.current) return
-      try {
-        const saved = await api.save(current, versionRef.current)
-        versionRef.current = saved.version
-        setSave('saved')
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 409) {
-          conflictRef.current = true
-          setConflict(true)
-          setSave('conflict')
-        } else {
-          setSave('error')
-          setError((e as Error).message)
-        }
-      }
-    })
-  }
-
-  // Debounced autosave
-  useEffect(() => {
-    if (!project) return
-    if (skipSaveRef.current) {
-      skipSaveRef.current = false
-      return
-    }
-    if (conflictRef.current) return
-    setSave('saving')
-    const t = setTimeout(saveNow, 600)
-    return () => clearTimeout(t)
-  }, [project])
-
+  const conflict = save.state === 'conflict'
   const resolveConflict = async (keepMine: boolean) => {
+    const saver = saverRef.current
+    if (!saver) return
     try {
-      if (keepMine) {
-        // Take the newest version number, then save our copy over it
-        versionRef.current = (await api.get(projectId)).version
-        conflictRef.current = false
-        setConflict(false)
-        setSave('saving')
-        saveNow()
-      } else {
-        conflictRef.current = false
-        setConflict(false)
-        await loadFromServer()
-        setSave('saved')
-      }
+      // "Keep mine": take the newest version number, then save our copy over it
+      if (keepMine) await saver.overwrite((await api.get(projectId)).version)
+      else await loadFromServer(saver)
     } catch (e) {
       setError((e as Error).message)
     }
@@ -181,8 +193,8 @@ export function Editor({ projectId }: { projectId: string }) {
   if (!project) return <div className="home muted">Laster prosjekt…</div>
 
   return (
-    <div className={`editor${inspectorWide ? ' wide-inspector' : ''}`}>
-      <TopBar save={save} />
+    <div className={`editor${inspectorWide ? ' wide-inspector' : ''}`} {...typing}>
+      <TopBar save={save} onRetry={() => void saverRef.current?.flush()} />
       <Toolbar />
       <main className="views">
         <ViewPanes />
@@ -227,9 +239,10 @@ function ViewPanes() {
   )
 }
 
-function TopBar({ save }: { save: SaveState }) {
+function TopBar({ save, onRetry }: { save: SaveStatus; onRetry: () => void }) {
   const project = useStore((s) => s.project)!
   const view = useStore((s) => s.view)
+  const { canUndo, canRedo } = useHistory()
   const { setView, updateProject, setActiveScenario, duplicateScenario, renameScenario, deleteScenario } =
     useStore.getState()
   const scenario = activeScenario(project)
@@ -285,10 +298,10 @@ function TopBar({ save }: { save: SaveState }) {
         </button>
       </div>
       <div className="spacer" />
-      <button title="Angre (Ctrl+Z)" onClick={undo}>
+      <button title="Angre (Ctrl+Z)" onClick={undo} disabled={!canUndo}>
         ↶
       </button>
-      <button title="Gjør om (Ctrl+Y)" onClick={redo}>
+      <button title="Gjør om (Ctrl+Y)" onClick={redo} disabled={!canRedo}>
         ↷
       </button>
       <div className="segmented">
@@ -306,7 +319,15 @@ function TopBar({ save }: { save: SaveState }) {
         🖨
       </button>
       <ApiKeyButton />
-      <span className={`save-state ${save}`}>{SAVE_LABELS[save]}</span>
+      {save.state === 'retrying' || save.state === 'error' ? (
+        <button className={`save-state ${save.state}`} title={save.message} onClick={onRetry}>
+          {SAVE_LABELS[save.state]}
+        </button>
+      ) : (
+        <span className={`save-state ${save.state}`} role="status">
+          {SAVE_LABELS[save.state]}
+        </span>
+      )}
     </header>
   )
 }

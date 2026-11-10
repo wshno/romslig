@@ -1,7 +1,7 @@
 import { getCatalogItem } from './catalog.ts'
 import { furnitureIssues, roomAt } from './furniture.ts'
 import { add, dist, mul, polygonArea, wallDir, wallLength } from './geometry.ts'
-import type { Opening, Scenario, Wall } from './model.ts'
+import type { Opening, FurnitureItem, Scenario, Wall } from './model.ts'
 import { FIXTURE_INFO, PROFESSIONALS, RUN_INFO, describeInstallations, installationsInWall } from './installations.ts'
 
 export interface RoomChange {
@@ -12,12 +12,40 @@ export interface RoomChange {
   after: number | null
 }
 
+/** How many items of one name changed in the same way. */
+export interface FurnitureCount {
+  name: string
+  count: number
+  /** For moved items that are now in another room: the name of the room they came from. */
+  from?: string
+}
+
+/** The furniture changes in one room. */
+export interface FurnitureRoomChange {
+  /** Null for items that stand outside every room. */
+  roomId: string | null
+  room: string | null
+  added: FurnitureCount[]
+  removed: FurnitureCount[]
+  moved: FurnitureCount[]
+}
+
 export interface ScenarioComparison {
   installations: { added: number; removed: number; moved: number }
   walls: { removed: Wall[]; added: Wall[]; moved: Wall[] }
   openings: { removed: Opening[]; added: Opening[]; resized: Opening[] }
   rooms: RoomChange[]
-  furniture: { added: string[]; removed: string[]; moved: string[] }
+  furniture: {
+    added: string[]
+    removed: string[]
+    moved: string[]
+    /**
+     * The same changes per room: added and moved items under the room they stand in afterwards,
+     * removed items under the room they stood in. Rooms in the order of the "after" variant,
+     * items outside every room last.
+     */
+    byRoom: FurnitureRoomChange[]
+  }
   problems: { before: number; after: number }
   /** Things that need professionals or permission, in Norwegian. */
   flags: string[]
@@ -72,15 +100,17 @@ export function compareScenarios(a: Scenario, b: Scenario): ScenarioComparison {
 
   const aFurn = new Map(a.furniture.map((f) => [f.id, f]))
   const bFurn = new Map(b.furniture.map((f) => [f.id, f]))
+  const furnAdded = b.furniture.filter((f) => !aFurn.has(f.id))
+  const furnRemoved = a.furniture.filter((f) => !bFurn.has(f.id))
+  const furnMoved = b.furniture.filter((f) => {
+    const before = aFurn.get(f.id)
+    return before && (dist(before, f) > 0.05 || Math.abs(before.rotation - f.rotation) > 1)
+  })
   const furniture = {
-    added: b.furniture.filter((f) => !aFurn.has(f.id)).map(nameOf),
-    removed: a.furniture.filter((f) => !bFurn.has(f.id)).map(nameOf),
-    moved: b.furniture
-      .filter((f) => {
-        const before = aFurn.get(f.id)
-        return before && (dist(before, f) > 0.05 || Math.abs(before.rotation - f.rotation) > 1)
-      })
-      .map(nameOf),
+    added: furnAdded.map(nameOf),
+    removed: furnRemoved.map(nameOf),
+    moved: furnMoved.map(nameOf),
+    byRoom: furnitureByRoom(a, b, furnAdded, furnRemoved, furnMoved),
   }
 
   const flags = new Set<string>()
@@ -129,6 +159,49 @@ export function compareScenarios(a: Scenario, b: Scenario): ScenarioComparison {
     flags: [...flags],
     totalArea: { before: totalArea(a), after: totalArea(b) },
   }
+}
+
+/** Groups furniture changes by room, and counts items of the same name instead of repeating them. */
+function furnitureByRoom(
+  a: Scenario,
+  b: Scenario,
+  added: FurnitureItem[],
+  removed: FurnitureItem[],
+  moved: FurnitureItem[],
+): FurnitureRoomChange[] {
+  const groups = new Map<string | null, FurnitureRoomChange>()
+  const group = (room: { id: string; name: string } | null) => {
+    const key = room?.id ?? null
+    let g = groups.get(key)
+    if (!g) {
+      g = { roomId: key, room: room?.name ?? null, added: [], removed: [], moved: [] }
+      groups.set(key, g)
+    }
+    return g
+  }
+  const count = (list: FurnitureCount[], name: string, from?: string) => {
+    const same = list.find((c) => c.name === name && c.from === from)
+    if (same) same.count++
+    else list.push({ name, count: 1, ...(from === undefined ? {} : { from }) })
+  }
+  // A room has the same id in both variants; the name it has afterwards is the one to show
+  const after = (id: string) => b.rooms.find((r) => r.id === id)
+
+  for (const f of added) count(group(roomAt(f, b.rooms)).added, nameOf(f))
+  for (const f of removed) {
+    const room = roomAt(f, a.rooms)
+    count(group(room ? (after(room.id) ?? room) : null).removed, nameOf(f))
+  }
+  const aFurn = new Map(a.furniture.map((f) => [f.id, f]))
+  for (const f of moved) {
+    const now = roomAt(f, b.rooms)
+    const was = roomAt(aFurn.get(f.id)!, a.rooms)
+    count(group(now).moved, nameOf(f), was && was.id !== now?.id ? (after(was.id) ?? was).name : undefined)
+  }
+
+  const order = [...b.rooms.map((r) => r.id), ...a.rooms.map((r) => r.id)]
+  const rank = (g: FurnitureRoomChange) => (g.roomId === null ? order.length : order.indexOf(g.roomId))
+  return [...groups.values()].sort((x, y) => rank(x) - rank(y))
 }
 
 /** Counts of fixtures, runs and lowered ceilings added, removed or moved. */

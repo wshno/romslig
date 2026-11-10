@@ -6,9 +6,12 @@ import {
   footprint,
   frontDir,
   furnitureIssues,
+  passagePolygons,
   polygonsOverlap,
+  polygonsShareArea,
   snapToWall,
 } from './furniture.ts'
+import type { LoweredCeiling } from './installations.ts'
 import { polygonArea, v } from './geometry.ts'
 import type { FurnitureItem, Opening, Room, Wall } from './model.ts'
 
@@ -132,8 +135,12 @@ describe('furnitureIssues', () => {
     expect(polygonArea(doorSwingPolygon(door, box[0]!)!)).toBeCloseTo(0.81)
     const issues = furnitureIssues(scene([item('k', 'kommode', 2, 0.4)], [door]))
     expect(issues.get('k')).toContainEqual({ kind: 'door', openingId: 'd' })
-    // Swinging out of the room instead: no conflict
-    expect(furnitureIssues(scene([item('k', 'kommode', 2, 0.4)], [{ ...door, flip: false }])).get('k')).toBeUndefined()
+    // Swinging out of the room instead: nothing in the swing, but the dresser still stands in the way
+    expect(furnitureIssues(scene([item('k', 'kommode', 2, 0.4)], [{ ...door, flip: false }])).get('k')).toEqual([
+      { kind: 'passage', openingId: 'd', of: 'door' },
+    ])
+    // A step to the side, and you can walk past it
+    expect(furnitureIssues(scene([item('k', 'kommode', 3, 0.4)], [{ ...door, flip: false }])).get('k')).toBeUndefined()
   })
   it('flags items outside every room', () => {
     expect(furnitureIssues(scene([item('x', 'plante', 6, 6)])).get('x')).toContainEqual({ kind: 'outside' })
@@ -197,5 +204,161 @@ describe('findFreeSpot for chairs', () => {
     expect(spot.y).toBeGreaterThan(0.7)
     expect(spot.y).toBeLessThan(1.2)
     expect(frontDir(spot.rotation).y).toBeCloseTo(-1) // faces the desk
+  })
+})
+
+describe('the way through doors and doorways', () => {
+  const doorway: Opening = {
+    id: 'o',
+    wallId: 'top',
+    kind: 'opening',
+    offset: 2,
+    width: 0.9,
+    height: 2.1,
+    sill: 0,
+    flip: false,
+  }
+
+  it('keeps the floor free on both sides of a doorway, and on the side a door does not swing to', () => {
+    const both = passagePolygons(doorway, box[0]!)
+    expect(both).toHaveLength(2)
+    for (const poly of both) expect(polygonArea(poly)).toBeCloseTo(0.9 * 0.6)
+    // One zone inside the room (y > 0) and one outside it
+    expect(both.map((poly) => Math.sign(poly[2]!.y)).sort((a, b) => a - b)).toEqual([-1, 1])
+
+    const door: Opening = { ...doorway, kind: 'door', flip: true } // swings into the room
+    const [other] = passagePolygons(door, box[0]!)
+    expect(passagePolygons(door, box[0]!)).toHaveLength(1)
+    expect(other![2]!.y).toBeLessThan(0)
+  })
+  it('has nothing to keep free at a window or a hatch', () => {
+    expect(passagePolygons({ ...doorway, kind: 'window', sill: 0.9, height: 1.2 }, box[0]!)).toEqual([])
+    expect(passagePolygons({ ...doorway, sill: 0.9, height: 1 }, box[0]!)).toEqual([])
+  })
+  it('flags furniture standing in a doorway, once, and not what stands beside it', () => {
+    const issues = furnitureIssues(
+      scene(
+        [item('k', 'kommode', 2, 0.4), item('side', 'kommode', 3.2, 0.4), item('far', 'kommode', 2, 2.6, 180)],
+        [doorway],
+      ),
+    )
+    expect(issues.get('k')).toEqual([{ kind: 'passage', openingId: 'o', of: 'opening' }])
+    expect(issues.get('side')).toBeUndefined()
+    expect(issues.get('far')).toBeUndefined()
+  })
+  it('lets a rug lie in a doorway and a wall cabinet hang above one', () => {
+    const issues = furnitureIssues(
+      scene([item('rug', 'teppe-200', 2, 1.6), item('o', 'overskap-60', 2, 0.23)], [doorway]),
+    )
+    expect(issues.get('rug')).toBeUndefined()
+    expect(issues.get('o')?.some((i) => i.kind === 'passage')).not.toBe(true)
+  })
+  it('does not offer the spot in front of a doorway to a new item', () => {
+    // A doorway as wide as the wall leaves nothing along the top wall
+    const wide: Opening = { ...doorway, width: 3.8 }
+    const spot = findFreeSpot(scene([], [wide]), 'kommode', room, { preferSide: 'top' })!
+    expect(spot.y).toBeGreaterThan(0.6)
+  })
+})
+
+describe('windows', () => {
+  const window_: Opening = {
+    id: 'w',
+    wallId: 'top',
+    kind: 'window',
+    offset: 2,
+    width: 1.2,
+    height: 1.2,
+    sill: 0.9,
+    flip: false,
+  }
+  const against = (id: string, catalogId: string, x: number) => {
+    const c = catalogById.get(catalogId)!
+    return item(id, catalogId, x, 0.05 + c.d / 2 + 0.002)
+  }
+
+  it('flags tall furniture covering at least half of a window', () => {
+    const issues = furnitureIssues(scene([against('g', 'garderobe-100', 2)], [window_]))
+    expect(issues.get('g')).toContainEqual({ kind: 'window', openingId: 'w' })
+  })
+  it('accepts furniture that stays below the sill, or only just above it', () => {
+    // A dresser (below the sill) and a sofa back (a little above) under the window
+    expect(furnitureIssues(scene([against('k', 'kommode', 2)], [window_])).get('k')).toBeUndefined()
+    const low: Opening = { ...window_, sill: 0.7 }
+    expect(furnitureIssues(scene([against('s', 'sofa-2', 2)], [low])).get('s')).toBeUndefined()
+  })
+  it('accepts tall furniture that covers less than half of it, or stands out in the room', () => {
+    // 1 m wide wardrobe with its edge 0.3 m into a 1.2 m window
+    expect(
+      furnitureIssues(scene([against('g', 'garderobe-100', 2 - 0.6 - 0.5 + 0.3)], [window_])).get('g'),
+    ).toBeUndefined()
+    expect(furnitureIssues(scene([against('p', 'plante', 2)], [window_])).get('p')).toBeUndefined()
+    const out = { ...against('g', 'garderobe-100', 2), y: 1 }
+    expect(
+      furnitureIssues(scene([out], [window_]))
+        .get('g')
+        ?.some((i) => i.kind === 'window'),
+    ).not.toBe(true)
+  })
+  it('flags a wall cabinet hung across a window', () => {
+    const narrow: Opening = { ...window_, width: 1 }
+    const issues = furnitureIssues(scene([against('o', 'overskap-60', 2)], [narrow]))
+    expect(issues.get('o')).toEqual([{ kind: 'window', openingId: 'w' }])
+  })
+})
+
+describe('lowered ceilings', () => {
+  // The right-hand metre of the room, 2 m under the ceiling
+  const lowered: LoweredCeiling = {
+    id: 'c',
+    polygon: [v(2.95, 0.05), v(3.95, 0.05), v(3.95, 2.95), v(2.95, 2.95)],
+    height: 2,
+    label: null,
+  }
+  const withCeilings = (furniture: FurnitureItem[], loweredCeilings: LoweredCeiling[]) => ({
+    ...scene(furniture),
+    loweredCeilings,
+  })
+  const tall = (id: string, x: number, y: number): FurnitureItem => ({
+    ...item(id, 'bokhylle', x, y),
+    size: { w: 0.8, d: 0.3, h: 2.2 },
+  })
+
+  it('flags furniture taller than the lowered ceiling above it', () => {
+    const issues = furnitureIssues(withCeilings([tall('b', 3.4, 1.5)], [lowered]))
+    expect(issues.get('b')).toContainEqual({ kind: 'ceiling', ceilingId: 'c', height: 2 })
+  })
+  it('flags it also when only a corner is under the ceiling', () => {
+    const issues = furnitureIssues(withCeilings([tall('b', 2.6, 1.5)], [lowered]))
+    expect(issues.get('b')).toContainEqual({ kind: 'ceiling', ceilingId: 'c', height: 2 })
+  })
+  it('accepts furniture that fits under it, or stands right next to it', () => {
+    expect(furnitureIssues(withCeilings([item('k', 'kommode', 3.4, 1.5)], [lowered])).get('k')).toBeUndefined()
+    // The 0.8 m wide shelf ends exactly where the lowered ceiling begins
+    expect(furnitureIssues(withCeilings([tall('b', 2.95 - 0.4, 1.5)], [lowered])).get('b')).toBeUndefined()
+  })
+  it('measures against the lowest of two ceilings, and reports it once', () => {
+    const lower: LoweredCeiling = { ...lowered, id: 'lower', height: 1.8 }
+    const issues = furnitureIssues(withCeilings([tall('b', 3.4, 1.5)], [lowered, lower]))
+    expect(issues.get('b')?.filter((i) => i.kind === 'ceiling')).toEqual([
+      { kind: 'ceiling', ceilingId: 'lower', height: 1.8 },
+    ])
+  })
+  it('sees a ceiling drawn around a corner', () => {
+    // An L along the top and right walls. A shelf in the inner corner of the L touches neither arm
+    const l: LoweredCeiling = {
+      ...lowered,
+      polygon: [v(0.05, 0.05), v(3.95, 0.05), v(3.95, 2.95), v(2.95, 2.95), v(2.95, 1.05), v(0.05, 1.05)],
+    }
+    expect(polygonsShareArea(footprint(tall('b', 2.5, 1.25)), l.polygon)).toBe(false)
+    expect(polygonsShareArea(footprint(tall('b', 2.5, 1.1)), l.polygon)).toBe(true)
+    // A long shelf crossing the top arm with every corner outside the ceiling's own corners
+    const across: FurnitureItem = { ...tall('b', 1.5, 0.6), size: { w: 0.3, d: 2.4, h: 2.2 } }
+    expect(polygonsShareArea(footprint(across), l.polygon)).toBe(true)
+  })
+  it('does not offer a spot under a ceiling that is too low for the item', () => {
+    const everywhere: LoweredCeiling = { ...lowered, polygon: room.polygon }
+    expect(findFreeSpot(withCeilings([], [everywhere]), 'garderobe-100', room)).toBeNull()
+    expect(findFreeSpot(withCeilings([], [everywhere]), 'kommode', room)).not.toBeNull()
   })
 })

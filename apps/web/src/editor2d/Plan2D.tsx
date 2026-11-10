@@ -19,12 +19,14 @@ import {
   sub,
   wallDir,
   wallLength,
+  wallsMovedWith,
   type Opening,
   type Room,
   type Scenario,
   type SnapKind,
   type Vec2,
   type Wall,
+  type WallEnd,
 } from '@romslig/shared'
 import { api } from '../api.ts'
 import { activeScenario, beginGesture, endGesture, useStore } from '../store.ts'
@@ -105,7 +107,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   const selection = readOnly ? null : store.selection
   const suggestion = readOnly ? null : store.suggestion
   const interactive = !readOnly && tool === 'select'
-  const { select, addWall, addOpening, addRoom, updateWall, updateOpening, calibrate, setTool } = useStore.getState()
+  const { select, addWall, addOpening, addRoom, updateOpening, calibrate, setTool } = useStore.getState()
 
   const img = useHtmlImage(
     project.planImage ? `${api.planUrl(project.id)}?v=${project.createdAt}-${project.planImage.file}` : null,
@@ -386,15 +388,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
               <Installations2D scenario={scenario} scale={scale} interactive={interactive} selection={selection} />
             )}
             {showDims && scenario.rooms.map((r) => <RoomEdgeLengths key={`dim-${r.id}`} room={r} scale={scale} />)}
-            {selectedWall && (
-              <WallHandles
-                wall={selectedWall}
-                walls={walls}
-                scale={scale}
-                shiftRef={shiftRef}
-                updateWall={updateWall}
-              />
-            )}
+            {selectedWall && <WallHandles wall={selectedWall} scenario={scenario} scale={scale} shiftRef={shiftRef} />}
             {suggestion && <SuggestionOverlay scale={scale} />}
 
             {/* Tool previews */}
@@ -725,21 +719,21 @@ function OpeningShape(props: {
 
 function WallHandles({
   wall,
-  walls,
+  scenario,
   scale,
   shiftRef,
-  updateWall,
 }: {
   wall: Wall
-  walls: Wall[]
+  scenario: Scenario
   scale: number
   shiftRef: React.RefObject<boolean>
-  updateWall(id: string, patch: Partial<Wall>): void
 }) {
-  // Walls whose endpoints coincide with the dragged endpoint move along
-  const linkedRef = useRef<{ id: string; end: 'a' | 'b' }[]>([])
+  // The variant as it was when the drag started, and the walls that stand still during it. Every
+  // move is worked out from that start, so connected walls, openings and rooms follow the pointer
+  // instead of drifting with each step.
+  const dragRef = useRef<{ base: Scenario; still: Wall[] } | null>(null)
   const mid = add(wall.a, mul(sub(wall.b, wall.a), 0.5))
-  const handle = (end: 'a' | 'b') => (
+  const handle = (end: WallEnd) => (
     <Circle
       x={wall[end].x}
       y={wall[end].y}
@@ -751,30 +745,23 @@ function WallHandles({
       draggable
       onDragStart={() => {
         beginGesture()
-        const p = wall[end]
-        linkedRef.current = walls.flatMap((w) =>
-          w.id === wall.id
-            ? []
-            : (['a', 'b'] as const).filter((k) => dist(w[k], p) < 1e-3).map((k) => ({ id: w.id, end: k })),
-        )
+        const moving = new Set(wallsMovedWith(scenario, wall.id, end))
+        dragRef.current = { base: scenario, still: scenario.walls.filter((w) => !moving.has(w.id)) }
       }}
       onDragMove={(e) => {
-        const other = end === 'a' ? wall.b : wall.a
-        const exclude = new Set([wall.id, ...linkedRef.current.map((l) => l.id)])
+        const drag = dragRef.current
+        if (!drag) return
         const r = snapPoint(
           { x: e.target.x(), y: e.target.y() },
-          {
-            walls: walls.filter((w) => !exclude.has(w.id)),
-            anchor: other,
-            tolerance: 12 / scale,
-            ortho: !shiftRef.current,
-          },
+          { walls: drag.still, anchor: end === 'a' ? wall.b : wall.a, tolerance: 12 / scale, ortho: !shiftRef.current },
         )
         e.target.position(r.point)
-        updateWall(wall.id, { [end]: r.point })
-        for (const l of linkedRef.current) updateWall(l.id, { [l.end]: r.point })
+        useStore.getState().dragWallEndpoint(drag.base, wall.id, end, r.point)
       }}
-      onDragEnd={endGesture}
+      onDragEnd={() => {
+        dragRef.current = null
+        endGesture()
+      }}
     />
   )
   return (

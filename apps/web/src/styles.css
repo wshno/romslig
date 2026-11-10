@@ -244,10 +244,12 @@ select {
 .save-state {
   font-size: 12px;
   color: var(--muted);
-  width: 100px;
+  min-width: 100px;
   text-align: right;
+  white-space: nowrap;
 }
-.save-state.error {
+.save-state.error,
+.save-state.retrying {
   color: var(--danger);
 }
 
@@ -541,8 +543,13 @@ select {
 .room-list .muted {
   font-size: 12px;
 }
-.props {
+/* One column that never grows past the panel. An implicit column is as wide as its widest
+   content (the search field beside the category list), which pushed the right edge under the
+   scrollbar. */
+.props,
+.catalog {
   min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
 }
 .field input,
 .field select {
@@ -818,6 +825,9 @@ select {
 }
 .compare-grid .rm {
   color: var(--danger);
+}
+.compare-room {
+  margin-bottom: 6px;
 }
 .plan-title {
   background: #fff;
