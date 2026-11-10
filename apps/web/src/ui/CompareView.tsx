@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { compareScenarios, type Project, type Scenario } from '@romslig/shared'
+import { compareScenarios, type FurnitureCount, type Project, type Scenario } from '@romslig/shared'
 import { Plan2D, type PlanView } from '../editor2d/Plan2D.tsx'
 import { activeScenario, useStore } from '../store.ts'
 import { fmtM2 } from '../theme.ts'
@@ -11,6 +11,13 @@ function defaultBefore(p: Project, after: Scenario): string {
 }
 
 const signed = (n: number) => `${n > 0 ? '+' : ''}${n.toFixed(1).replace('.', ',')} m²`
+
+/** "1 vegg fjernet", "2 vegger fjernet": `{}` in the text is replaced by the number. */
+const counted = (n: number, one: string, many: string) => (n === 1 ? one : many).replace('{}', String(n))
+
+/** "Lenestol · 2 × Nattbord · Spisebord (fra Kjøkken)". Not commas: some names have one ("Sofa, 3-seter"). */
+const item = (c: FurnitureCount) => (c.count > 1 ? c.count + ' × ' : '') + c.name + (c.from ? ` (fra ${c.from})` : '')
+const items = (list: FurnitureCount[]) => list.map(item).join(' · ')
 
 export function CompareView() {
   const project = useStore((s) => s.project)!
@@ -33,16 +40,19 @@ export function CompareView() {
     </select>
   )
 
-  const nothing =
-    !diff.walls.removed.length &&
-    !diff.walls.added.length &&
-    !diff.walls.moved.length &&
-    !diff.openings.added.length &&
-    !diff.openings.removed.length &&
-    !diff.openings.resized.length &&
-    !diff.furniture.added.length &&
-    !diff.furniture.removed.length &&
-    !diff.furniture.moved.length
+  // [how many, the text for one, the text for several, colour]
+  const building: [number, string, string, string?][] = [
+    [diff.walls.removed.length, '{} vegg fjernet', '{} vegger fjernet', 'rm'],
+    [diff.walls.added.length, '{} ny vegg', '{} nye vegger', 'add'],
+    [diff.walls.moved.length, '{} vegg flyttet', '{} vegger flyttet'],
+    [diff.openings.added.length, '{} ny åpning', '{} nye åpninger', 'add'],
+    [diff.openings.removed.length, '{} åpning fjernet', '{} åpninger fjernet', 'rm'],
+    [diff.openings.resized.length, '{} åpning har ny bredde', '{} åpninger har ny bredde'],
+    [diff.installations.added, '{} ny installasjon', '{} nye installasjoner', 'add'],
+    [diff.installations.removed, '{} installasjon fjernet', '{} installasjoner fjernet', 'rm'],
+    [diff.installations.moved, '{} installasjon endret', '{} installasjoner endret'],
+  ]
+  const changed = building.filter(([n]) => n > 0)
 
   return (
     <div className="compare">
@@ -99,27 +109,23 @@ export function CompareView() {
             )}
             <div className="compare-grid">
               <section>
-                <h4>Vegger og åpninger</h4>
-                {nothing && <p className="muted">Ingen endringer i vegger eller møbler.</p>}
-                <ul>
-                  {diff.walls.removed.length > 0 && (
-                    <li className="rm">{diff.walls.removed.length} vegg(er) fjernet</li>
-                  )}
-                  {diff.walls.added.length > 0 && <li className="add">{diff.walls.added.length} ny(e) vegg(er)</li>}
-                  {diff.walls.moved.length > 0 && <li>{diff.walls.moved.length} vegg(er) flyttet</li>}
-                  {diff.openings.added.length > 0 && (
-                    <li className="add">{diff.openings.added.length} ny(e) åpning(er)</li>
-                  )}
-                  {diff.openings.removed.length > 0 && (
-                    <li className="rm">{diff.openings.removed.length} åpning(er) fjernet</li>
-                  )}
-                  {diff.openings.resized.length > 0 && <li>{diff.openings.resized.length} åpning(er) endret bredde</li>}
-                </ul>
+                <h4>Vegger, åpninger og installasjoner</h4>
+                {changed.length === 0 ? (
+                  <p className="muted">Uendret.</p>
+                ) : (
+                  <ul>
+                    {changed.map(([n, one, many, colour]) => (
+                      <li key={one} className={colour}>
+                        {counted(n, one, many)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
               <section>
                 <h4>Rom</h4>
                 {diff.rooms.length === 0 ? (
-                  <p className="muted">Romarealene er uendret.</p>
+                  <p className="muted">Uendret.</p>
                 ) : (
                   <ul>
                     {diff.rooms.map((r) => (
@@ -141,15 +147,17 @@ export function CompareView() {
               </section>
               <section>
                 <h4>Møbler</h4>
-                <ul>
-                  {diff.furniture.added.length > 0 && (
-                    <li className="add">Lagt til: {diff.furniture.added.join(', ')}</li>
-                  )}
-                  {diff.furniture.removed.length > 0 && (
-                    <li className="rm">Fjernet: {diff.furniture.removed.join(', ')}</li>
-                  )}
-                  {diff.furniture.moved.length > 0 && <li>Flyttet: {diff.furniture.moved.join(', ')}</li>}
-                </ul>
+                {diff.furniture.byRoom.length === 0 && <p className="muted">Uendret.</p>}
+                {diff.furniture.byRoom.map((g) => (
+                  <div key={g.roomId ?? 'outside'} className="compare-room">
+                    <b>{g.room ?? 'Utenfor rom'}</b>
+                    <ul>
+                      {g.added.length > 0 && <li className="add">Lagt til: {items(g.added)}</li>}
+                      {g.removed.length > 0 && <li className="rm">Fjernet: {items(g.removed)}</li>}
+                      {g.moved.length > 0 && <li>Flyttet: {items(g.moved)}</li>}
+                    </ul>
+                  </div>
+                ))}
                 <p className={diff.problems.after > diff.problems.before ? 'error' : 'muted'}>
                   Møbler med problemer: {diff.problems.before} → {diff.problems.after}
                 </p>

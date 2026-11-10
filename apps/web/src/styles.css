@@ -779,6 +779,9 @@ select {
 .compare-grid .rm {
   color: var(--danger);
 }
+.compare-room {
+  margin-bottom: 6px;
+}
 .plan-title {
   background: #fff;
   border: 1px solid var(--border);
