@@ -44,6 +44,9 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+    # The CSP is enforced here like in previews and production, so e2e fails on anything it would block.
+    environment:
+      STATIC_SERVER_CONFIG: /etc/static-server/static-server.enforce.json
 
   # Readiness gate for `up --wait`: the api and web images are distroless (no shell, no curl), so the
   # proxy, which has wget, checks both through itself.
