@@ -400,6 +400,47 @@ describe('request log and errors', () => {
     expect(requests()).toHaveLength(1)
   })
 
+  it('is ready when the store answers, and says so without login or a log line', async () => {
+    const res = await logging.request('/api/health/ready')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(lines).toEqual([])
+  })
+
+  it('is not ready while the store fails or hangs, and keeps why in the log', async () => {
+    const down: ProjectStore = Object.assign(Object.create(store) as ProjectStore, {
+      ping: () => Promise.reject(new Error('connect ECONNREFUSED 10.0.0.5:5432')),
+    })
+    const res = await createApp(down, { mode: 'forward' }, { log: (line) => lines.push(line) }).request(
+      '/api/health/ready',
+    )
+    expect(res.status).toBe(503)
+    const body = await res.text()
+    expect(JSON.parse(body)).toEqual({ ok: false })
+    expect(body).not.toContain('ECONNREFUSED')
+    expect(lines).toContainEqual(
+      expect.objectContaining({ level: 'error', msg: 'not ready', detail: 'connect ECONNREFUSED 10.0.0.5:5432' }),
+    )
+    expect(lines).toContainEqual(
+      expect.objectContaining({ msg: 'request', route: '/api/health/ready', status: 503, level: 'error' }),
+    )
+
+    lines.length = 0
+    const hung: ProjectStore = Object.assign(Object.create(store) as ProjectStore, {
+      ping: () => new Promise<void>(() => {}),
+    })
+    const started = Date.now()
+    const slow = await createApp(hung, { mode: 'forward' }, { log: (line) => lines.push(line) }).request(
+      '/api/health/ready',
+    )
+    expect(slow.status).toBe(503)
+    expect(Date.now() - started).toBeLessThan(2000)
+    expect(lines).toContainEqual(expect.objectContaining({ msg: 'not ready', detail: 'no answer within 800 ms' }))
+
+    // Liveness does not ask the store, so a database outage does not restart the pod
+    expect((await createApp(down, { mode: 'forward' }).request('/api/health')).status).toBe(200)
+  })
+
   it('gives every answer a request id, and keeps one from the gateway when it is usable', async () => {
     const own = await logging.request('/api/me', as('kari'))
     expect(own.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/)

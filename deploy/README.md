@@ -73,13 +73,22 @@ ikke spørrestrengen.
 | `ai`        | En forespørsel gjennom AI-proxyen er ferdig        | `id`, `user`, `model`, `status`, `input_tokens`, `output_tokens`, ev. `aborted`, `error` |
 | `listening` | Oppstart                                           | `version`, `sha`, `auth`, `group`, `storage`, `ai`, `aiGroup`                            |
 | `config`    | Advarsel om oppsettet ved oppstart                 | `detail`                                                                                 |
+| `not ready` | `/api/health/ready` fikk ikke svar fra lageret     | `id`, `error`, `detail`                                                                  |
 
 - Alle linjer har `time` og `level` (`info`, `warn` eller `error`; `request` er `error` ved status 500 og over).
 - `id` er forespørselens id. Den sendes tilbake i `X-Request-Id`, og en id gatewayen allerede har satt,
   beholdes. Et 500-svar inneholder bare en generell melding og denne id-en (`requestId`); selve feilen
   står i `error`-linjen med samme `id`.
 - `route` er mønsteret som svarte (`/api/projects/:id`). Stoppet innloggingen forespørselen, er det `/api/*`.
-- Vellykkede kall til `/api/health` logges ikke.
+- Vellykkede kall til `/api/health` og `/api/health/ready` logges ikke.
+
+## Prober
+
+- `/api/health` (liveness) svarer så lenge prosessen lever. Den spør ikke databasen, så et
+  databasebrudd fører ikke til omstart av poden.
+- `/api/health/ready` (readiness) spør også lageret: PostgreSQL med `SELECT 1`, eller at mappen til
+  fillageret finnes og er skrivbar. Uten svar innen 800 ms gir den 503, og Traefik sender ikke trafikk
+  til poden før den svarer igjen. Hvorfor står i `not ready`-linjen i loggen, ikke i svaret.
 
 ## Kontrakt
 
