@@ -197,10 +197,12 @@ select {
 .save-state {
   font-size: 12px;
   color: var(--muted);
-  width: 100px;
+  min-width: 100px;
   text-align: right;
+  white-space: nowrap;
 }
-.save-state.error {
+.save-state.error,
+.save-state.retrying {
   color: var(--danger);
 }
 
