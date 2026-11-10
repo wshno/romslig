@@ -101,15 +101,16 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   const px = (n: number) => n / scale // screen pixels → meters
   const walls = scenario.walls
 
-  const { cursor, setCursor, anchor, roomPts, calPts, shiftRef, onMouseMove, onClick, endChain } = useDrawingTool({
-    stageRef,
-    tool,
-    readOnly,
-    walls,
-    scale,
-    ppm,
-    setManualView,
-  })
+  const { cursor, setCursor, anchor, roomPts, calPts, typedLength, wallEnd, shiftRef, onMouseMove, onClick, endChain } =
+    useDrawingTool({
+      stageRef,
+      tool,
+      readOnly,
+      walls,
+      scale,
+      ppm,
+      setManualView,
+    })
 
   const onWheel = (e: KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault()
@@ -239,19 +240,20 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
             {suggestion && <SuggestionOverlay scale={scale} />}
 
             {/* Tool previews */}
-            {tool === 'wall' && anchor && cursor && (
+            {tool === 'wall' && anchor && wallEnd && (
               <>
                 <Line
-                  points={[anchor.x, anchor.y, cursor.p.x, cursor.p.y]}
+                  points={[anchor.x, anchor.y, wallEnd.x, wallEnd.y]}
                   stroke="#2563eb"
                   strokeWidth={2}
                   dash={[6, 4]}
                   strokeScaleEnabled={false}
                 />
                 <Label
-                  at={add(anchor, mul(sub(cursor.p, anchor), 0.5))}
-                  text={fmtM(dist(anchor, cursor.p))}
+                  at={add(anchor, mul(sub(wallEnd, anchor), 0.5))}
+                  text={typedLength !== null ? `${typedLength} m ⏎` : fmtM(dist(anchor, wallEnd))}
                   scale={scale}
+                  color={typedLength !== null ? '#2563eb' : undefined}
                 />
               </>
             )}

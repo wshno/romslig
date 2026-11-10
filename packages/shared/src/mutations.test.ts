@@ -10,6 +10,7 @@ import {
   removeWall,
   replaceGeometry,
   rescaleScenario,
+  setWallLength,
   wallsMovedWith,
 } from './mutations.ts'
 import { redetectRooms } from './scenario.ts'
@@ -205,6 +206,40 @@ describe('moveWallEndpoint', () => {
   it('returns the scenario untouched for a wall that does not exist', () => {
     const base = flat()
     expect(moveWallEndpoint(base, 'missing', 'a', v(1, 1))).toBe(base)
+  })
+})
+
+describe('setWallLength', () => {
+  it('moves the far end along the wall and takes the walls in that corner along', () => {
+    const s = setWallLength(flat(), 't', 7.25)
+    expect(wallOf(s, 't').a).toEqual(v(0, 0))
+    expect(wallOf(s, 't').b).toEqual(v(7.25, 0))
+    expect(wallOf(s, 'r').a).toEqual(v(7.25, 0))
+    // m stands against t where it did
+    expect(wallOf(s, 'm').a).toEqual(v(4, 0))
+  })
+
+  it('can keep the other end instead', () => {
+    const s = setWallLength(flat(), 't', 5, 'b')
+    expect(wallOf(s, 't').a.x).toBeCloseTo(1)
+    expect(wallOf(s, 't').b).toEqual(v(6, 0))
+    expect(wallOf(s, 'l').b.x).toBeCloseTo(1)
+  })
+
+  it('works along a slanted wall', () => {
+    const s = { ...emptyScenario(), walls: [wall('x', 1, 1, 4, 5)] }
+    const x = wallOf(setWallLength(s, 'x', 10), 'x')
+    expect(x.a).toEqual(v(1, 1))
+    expect(x.b.x).toBeCloseTo(7)
+    expect(x.b.y).toBeCloseTo(9)
+  })
+
+  it('keeps the wall from becoming shorter than 5 cm, and ignores lengths that are not positive', () => {
+    expect(wallOf(setWallLength(flat(), 't', 0.01), 't').b.x).toBeCloseTo(0.05)
+    const s = flat()
+    expect(setWallLength(s, 't', 0)).toBe(s)
+    expect(setWallLength(s, 't', Number.NaN)).toBe(s)
+    expect(setWallLength(s, 'missing', 3)).toBe(s)
   })
 })
 

@@ -332,6 +332,23 @@ export function moveWallEndpoint(s: Scenario, wallId: string, end: WallEnd, to: 
   return followWalls(s.walls, { ...s, walls, openings, fixtures })
 }
 
+/** The shortest wall setWallLength makes. */
+export const MIN_WALL_LENGTH = 0.05
+
+/**
+ * Makes a wall `length` long by moving one end along the wall's own direction; `keep` is the end
+ * that stays. Everything attached to the moving end comes along, as when it is dragged
+ * (moveWallEndpoint).
+ */
+export function setWallLength(s: Scenario, wallId: string, length: number, keep: WallEnd = 'a'): Scenario {
+  const w = s.walls.find((x) => x.id === wallId)
+  if (!w || !Number.isFinite(length) || length <= 0 || dist(w.a, w.b) < 1e-9) return s
+  const from = keep === 'a' ? w.a : w.b
+  const toward = keep === 'a' ? w.b : w.a
+  const to = add(from, mul(norm(sub(toward, from)), Math.max(MIN_WALL_LENGTH, length)))
+  return moveWallEndpoint(s, wallId, keep === 'a' ? 'b' : 'a', to)
+}
+
 /** Removes a wall with its openings. Fixtures on it are kept, but no longer belong to a wall. */
 export function removeWall(s: Scenario, wallId: string): Scenario {
   if (!s.walls.some((w) => w.id === wallId)) return s

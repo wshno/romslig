@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import type Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
-import { dist, nearestWall, snapPoint, type SnapKind, type Vec2, type Wall } from '@romslig/shared'
+import { add, dist, mul, nearestWall, norm, snapPoint, sub, type SnapKind, type Vec2, type Wall } from '@romslig/shared'
 import { useStore, type Tool } from '../store.ts'
 import { fixturePlacement } from './installationUtils.ts'
 import type { PlanView } from './Plan2D.tsx'
@@ -28,6 +28,10 @@ export interface DrawingTool {
   roomPts: Vec2[]
   /** Calibration points picked so far. */
   calPts: Vec2[]
+  /** What has been typed as the length of the wall being drawn (e.g. "3,2"), or null. */
+  typedLength: string | null
+  /** Where the wall being drawn ends: the typed length toward the pointer, else the pointer. */
+  wallEnd: Vec2 | null
   /** True while Shift is held (free angle / no snapping). */
   shiftRef: RefObject<boolean>
   onMouseMove(): void
@@ -51,6 +55,7 @@ export function useDrawingTool({
   const [anchor, setAnchor] = useState<Vec2 | null>(null)
   const [roomPts, setRoomPts] = useState<Vec2[]>([])
   const [calPts, setCalPts] = useState<Vec2[]>([])
+  const [typedLength, setTypedLength] = useState<string | null>(null)
   const shiftRef = useRef(false)
   /** Our own double-click detection: same spot (screen px) within 350 ms. */
   const lastClickRef = useRef({ t: 0, x: 0, y: 0, double: false })
@@ -59,6 +64,7 @@ export function useDrawingTool({
   const [draftTool, setDraftTool] = useState(tool)
   if (draftTool !== tool) {
     setDraftTool(tool)
+    setTypedLength(null)
     setAnchor(null)
     setRoomPts([])
     setCalPts([])
@@ -68,6 +74,7 @@ export function useDrawingTool({
     const down = (e: KeyboardEvent) => {
       shiftRef.current = e.shiftKey
       if (e.key === 'Escape') {
+        setTypedLength(null)
         setAnchor(null)
         setRoomPts([])
         setCalPts([])
@@ -101,6 +108,46 @@ export function useDrawingTool({
     return { p, kind: 'none' }
   }
 
+  // Length typed while drawing a wall: digits and a decimal comma, Enter places the end that far
+  // toward the pointer. Listens in the capture phase, before the editor's shortcuts (Backspace
+  // deletes, Escape leaves the tool), and keeps those keys while a length is being typed.
+  const typedMeters = typedLength === null ? NaN : parseFloat(typedLength.replace(',', '.'))
+  const direction = anchor && cursor && dist(anchor, cursor.p) > 1e-6 ? norm(sub(cursor.p, anchor)) : null
+  let wallEnd: Vec2 | null = null
+  if (tool === 'wall' && anchor)
+    wallEnd = direction && typedMeters > 0 ? add(anchor, mul(direction, typedMeters)) : (cursor?.p ?? null)
+  useEffect(() => {
+    if (tool !== 'wall' || !anchor || readOnly) return
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const take = () => {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+      }
+      if (/^\d$/.test(e.key) || ((e.key === ',' || e.key === '.') && !/[.,]/.test(typedLength ?? ''))) {
+        take()
+        setTypedLength((typedLength ?? '') + (e.key === '.' ? ',' : e.key))
+      } else if (typedLength !== null && e.key === 'Backspace') {
+        take()
+        setTypedLength(typedLength.length > 1 ? typedLength.slice(0, -1) : null)
+      } else if (typedLength !== null && e.key === 'Escape') {
+        take() // the first Escape drops what was typed, the next one ends the wall
+        setTypedLength(null)
+      } else if (typedLength !== null && e.key === 'Enter') {
+        take()
+        if (wallEnd && typedMeters > 0.05) {
+          addWall(anchor, wallEnd)
+          setAnchor(wallEnd)
+          setTypedLength(null)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [tool, anchor, readOnly, typedLength, typedMeters, wallEnd, addWall])
+
   const onMouseMove = () => {
     const p = worldPointer()
     if (p) setCursor(resolve(p))
@@ -126,10 +173,15 @@ export function useDrawingTool({
       case 'select':
         if (e.target === e.target.getStage() || e.target.name() === 'bg') select(null)
         break
-      case 'wall':
-        if (anchor && dist(anchor, p) > 0.05) addWall(anchor, p)
-        setAnchor(p)
+      case 'wall': {
+        // With a length typed, a click places the wall at that length toward the click
+        const end =
+          anchor && typedMeters > 0 && dist(anchor, p) > 1e-6 ? add(anchor, mul(norm(sub(p, anchor)), typedMeters)) : p
+        if (anchor && dist(anchor, end) > 0.05) addWall(anchor, end)
+        setAnchor(end)
+        setTypedLength(null)
         break
+      }
       case 'door':
       case 'window':
       case 'opening': {
@@ -173,11 +225,24 @@ export function useDrawingTool({
 
   const endChain = () => {
     setAnchor(null)
+    setTypedLength(null)
     if (tool === 'room' && roomPts.length >= 3) addRoom(roomPts)
     if (tool === 'ceiling' && roomPts.length >= 3) useStore.getState().addLoweredCeiling(roomPts)
     if (tool === 'run' && roomPts.length >= 2) useStore.getState().addRun(roomPts)
     setRoomPts([])
   }
 
-  return { cursor, setCursor, anchor, roomPts, calPts, shiftRef, onMouseMove, onClick, endChain }
+  return {
+    cursor,
+    setCursor,
+    anchor,
+    roomPts,
+    calPts,
+    typedLength,
+    wallEnd,
+    shiftRef,
+    onMouseMove,
+    onClick,
+    endChain,
+  }
 }

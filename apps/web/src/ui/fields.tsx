@@ -13,6 +13,11 @@ interface NumProps {
   perUnit?: number
   /** Decimals shown. */
   digits?: number
+  /**
+   * Call onChange only on Enter or when focus leaves the field, not on every key. For values where
+   * a step on the way does something of its own: typing "12" would first make a wall 1 m long.
+   */
+  commitOnly?: boolean
 }
 
 /**
@@ -20,9 +25,26 @@ interface NumProps {
  * it, the stored value. They differ when the value has a limit: writing the limit back under the cursor
  * would turn "0.9" into "0.29" in a field where 0.2 is the smallest value allowed.
  */
-export function Num({ label, value, onChange, step = 0.01, unit = 'm', min, perUnit = 1, digits = 3 }: NumProps) {
+export function Num({
+  label,
+  value,
+  onChange,
+  step = 0.01,
+  unit = 'm',
+  min,
+  perUnit = 1,
+  digits = 3,
+  commitOnly = false,
+}: NumProps) {
   const [typed, setTyped] = useState<string | null>(null)
   const round = 10 ** digits
+  const commit = () => {
+    if (commitOnly && typed !== null) {
+      const v = parseFloat(typed)
+      if (!Number.isNaN(v)) onChange(v / perUnit)
+    }
+    setTyped(null)
+  }
   return (
     <label className="field">
       <span>{label}</span>
@@ -36,12 +58,14 @@ export function Num({ label, value, onChange, step = 0.01, unit = 'm', min, perU
             // The arrows in the field and on the keyboard step the value: show what it became
             const stepped = !(e.nativeEvent as InputEvent).inputType
             setTyped(stepped ? null : e.target.value)
+            if (commitOnly && !stepped) return
             const v = parseFloat(e.target.value)
             if (!Number.isNaN(v)) onChange(v / perUnit)
           }}
-          onBlur={() => setTyped(null)}
+          onBlur={commit}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') setTyped(null)
+            if (e.key === 'Enter') commit()
+            if (e.key === 'Escape' && commitOnly) setTyped(null)
           }}
         />
         <em>{unit}</em>
