@@ -494,8 +494,13 @@ select {
 .room-list .muted {
   font-size: 12px;
 }
-.props {
+/* One column that never grows past the panel. An implicit column is as wide as its widest
+   content (the search field beside the category list), which pushed the right edge under the
+   scrollbar. */
+.props,
+.catalog {
   min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
 }
 .field input,
 .field select {
