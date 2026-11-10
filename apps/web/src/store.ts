@@ -29,6 +29,7 @@ import {
   FIXTURE_INFO,
   RUN_INFO,
   defaultRunHeight,
+  fitOpening,
   type Opening,
   type Note,
   type OpeningKind,
@@ -129,6 +130,12 @@ interface State {
   duplicateScenario(name: string): void
   renameScenario(id: string, name: string): void
   deleteScenario(id: string): void
+}
+
+/** An opening is never wider than its wall, and never sticks out past the end of it. */
+function inWall(o: Opening, s: Scenario): Opening {
+  const wall = s.walls.find((w) => w.id === o.wallId)
+  return wall ? fitOpening(o, wall) : o
 }
 
 export const activeScenario = (p: Project): Scenario =>
@@ -250,13 +257,13 @@ export const useStore = create<State>()(
           sill: d.sill,
           flip: false,
         }
-        get().updateScenario((s) => ({ ...s, openings: [...s.openings, o] }))
+        get().updateScenario((s) => ({ ...s, openings: [...s.openings, inWall(o, s)] }))
         set({ selection: { kind: 'opening', id: o.id } })
       },
       updateOpening: (id, patch) =>
         get().updateScenario((s) => ({
           ...s,
-          openings: s.openings.map((o) => (o.id === id ? { ...o, ...patch } : o)),
+          openings: s.openings.map((o) => (o.id === id ? inWall({ ...o, ...patch }, s) : o)),
         })),
 
       addRoom: (drawn) => {
