@@ -21,9 +21,9 @@ test('the API answers health without a session, and everything else only behind 
 
 test('the app shell has a CSP that lets the browser reach only itself and Anthropic', async ({ page }) => {
   const headers = (await page.request.get('/')).headers()
-  // report-only until CSP_MODE=enforce; the policy is the same
-  const header = headers['content-security-policy'] ?? headers['content-security-policy-report-only']
-  const [policy] = parseCsp(header)
+  // Enforced (CSP_MODE=enforce) everywhere this suite runs: the e2e stack, previews and production
+  expect(headers['content-security-policy-report-only']).toBeUndefined()
+  const [policy] = parseCsp(headers['content-security-policy'])
   expect(policy?.get('script-src')).toEqual(["'self'"])
   expect(policy?.get('connect-src')).toEqual(["'self'", 'https://api.anthropic.com'])
   expect(policy?.get('object-src')).toEqual(["'none'"])
