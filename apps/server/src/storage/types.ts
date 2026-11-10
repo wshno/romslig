@@ -19,5 +19,7 @@ export interface ProjectStore {
   getPlan(owner: string, id: string): Promise<Uint8Array>
   /** Adds or replaces the plan image of an existing project. Throws 404 if missing. */
   putPlan(owner: string, id: string, png: Uint8Array): Promise<void>
+  /** Resolves when the store can serve requests (database reachable, directory writable); throws otherwise. */
+  ping(): Promise<void>
   close?(): Promise<void>
 }

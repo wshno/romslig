@@ -57,6 +57,10 @@ function contract(name: string, open: () => Promise<ProjectStore>) {
       await expect(store.putPlan('anna', 'p_missing', makePng(1, 1))).rejects.toMatchObject({ status: 404 })
     })
 
+    it('answers a ping', async () => {
+      await expect(store.ping()).resolves.toBeUndefined()
+    })
+
     it('deletes', async () => {
       const p = await store.create('anna', makeProject(), null)
       await store.delete('anna', p.id)
@@ -83,9 +87,20 @@ describe('FileStore legacy layout', () => {
   })
 })
 
+describe('FileStore ping', () => {
+  it('fails once its directory is gone, e.g. an unmounted volume', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'romslig-ping-'))
+    const store = await FileStore.open(root)
+    await expect(store.ping()).resolves.toBeUndefined()
+    await rm(root, { recursive: true, force: true })
+    await expect(store.ping()).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+})
+
 // Real PostgreSQL from embedded binaries, so no Docker is needed
 let pgServer: EmbeddedPostgres | null = null
 let pgDir = ''
+let closedPg: PostgresStore | null = null
 contract('PostgresStore', async () => {
   pgDir = await mkdtemp(path.join(tmpdir(), 'romslig-pg-'))
   const port = randomInt(55000, 56000)
@@ -103,8 +118,16 @@ contract('PostgresStore', async () => {
   const cfg = { host: 'localhost', port, database: 'romslig', user: 'romslig', password: 'romslig', ssl: false }
   const store = await PostgresStore.open(cfg)
   // Opening a second time must not re-run applied migrations
-  await (await PostgresStore.open(cfg)).close()
+  closedPg = await PostgresStore.open(cfg)
+  await closedPg.close()
   return store
+})
+
+describe('PostgresStore ping', () => {
+  it('fails once the pool is closed', async () => {
+    expect(closedPg).not.toBeNull()
+    await expect(closedPg!.ping()).rejects.toThrow()
+  })
 })
 
 afterAll(async () => {

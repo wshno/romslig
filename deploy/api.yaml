@@ -99,9 +99,12 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+          # Ready only while the store answers (PostgreSQL reachable, or the file store's directory
+          # writable), so Traefik stops sending traffic during an outage. Liveness stays on /api/health:
+          # restarting the pod would not bring the database back.
           readinessProbe:
             httpGet:
-              path: /api/health
+              path: /api/health/ready
               port: http
             initialDelaySeconds: 3
             periodSeconds: 10

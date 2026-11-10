@@ -40,7 +40,7 @@ export function requestLog(log: Log): MiddlewareHandler<{ Variables: { requestId
     const status = c.res.status
     // The route of the last handler that ran: the endpoint, or the middleware that refused
     const route = routePath(c)
-    if (route === '/api/health' && status === 200) return
+    if ((route === '/api/health' || route === '/api/health/ready') && status === 200) return
     log({
       level: status >= 500 ? 'error' : 'info',
       msg: 'request',

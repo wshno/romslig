@@ -49,6 +49,16 @@ const defaultPxPerMeter = (width: number, height: number) => Math.max(width, hei
 /** Longest project name we store. */
 const MAX_NAME = 200
 
+/** A readiness check that has not answered by now counts as failed; the probe gives up at 1 s by default. */
+const READY_TIMEOUT_MS = 800
+const withTimeout = <T>(work: Promise<T>, ms: number): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer within ${ms} ms`)), ms)
+  })
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer))
+}
+
 /** Largest export we read: a floor plan of the largest size as base64, and 4 MB for the project. */
 const MAX_IMPORT_BYTES = Math.ceil(MAX_PLAN_BYTES / 3) * 4 + 4 * 1024 * 1024
 
@@ -83,8 +93,20 @@ export function createApp(store: ProjectStore, authOpts: AuthOptions, opts: AppO
     return c.json({ error: `Noe gikk galt hos Romslig. Referanse: ${id}`, requestId: id }, 500)
   })
 
-  // Unauthenticated: used by Kubernetes probes
+  // Unauthenticated, for the Kubernetes probes. /health (liveness) only says the process answers, so a
+  // database outage does not get the pod restarted; /health/ready (readiness) also asks the store, so
+  // the pod gets no traffic while it cannot serve it. Why the store failed goes to the log only.
   app.get('/health', (c) => c.json({ ok: true }))
+  app.get('/health/ready', async (c) => {
+    try {
+      await withTimeout(store.ping(), READY_TIMEOUT_MS)
+      return c.json({ ok: true })
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err))
+      log({ level: 'error', msg: 'not ready', id: c.get('requestId'), error: e.name, detail: e.message })
+      return c.json({ ok: false }, 503)
+    }
+  })
 
   app.use('*', auth(authOpts))
   const owner = (c: { get(key: 'user'): User }) => c.get('user').id

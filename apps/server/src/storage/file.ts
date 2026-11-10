@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { access, constants, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Project, type ProjectSummary } from '@romslig/shared'
 import { HttpError } from '../errors.ts'
@@ -38,6 +38,11 @@ export class FileStore implements ProjectStore {
     const store = new FileStore(root)
     if (legacyOwner) await store.adoptLegacy(legacyOwner)
     return store
+  }
+
+  /** The directory is still there and writable (e.g. the volume it lives on is mounted). */
+  async ping(): Promise<void> {
+    await access(this.root, constants.W_OK)
   }
 
   private async adoptLegacy(owner: string) {

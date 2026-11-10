@@ -194,6 +194,10 @@ export class PostgresStore implements ProjectStore {
     return new Uint8Array(rows[0].png)
   }
 
+  async ping(): Promise<void> {
+    await this.pool.query('SELECT 1')
+  }
+
   async close() {
     await this.pool.end()
   }

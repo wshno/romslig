@@ -58,7 +58,7 @@ services:
       - api
       - web
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8080/api/health && wget -qO- http://127.0.0.1:8080/ >/dev/null']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8080/api/health/ready && wget -qO- http://127.0.0.1:8080/ >/dev/null']
       interval: 3s
       timeout: 3s
       retries: 40
