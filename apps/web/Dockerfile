@@ -15,6 +15,11 @@ RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY tsconfig.base.json ./
 COPY packages/ packages/
 COPY apps/web/ apps/web/
+# Passed by the reusable docker-container workflow (GitVersion version and commit); shown in the footer.
+ARG APP_VERSION=
+ARG GIT_SHA=
+ENV VITE_APP_VERSION=${APP_VERSION} \
+    VITE_GIT_SHA=${GIT_SHA}
 RUN npm run build -w apps/web
 
 # Tag and digest pinned, so Dependabot (docker, weekly) opens a PR for each static-server release.

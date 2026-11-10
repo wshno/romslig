@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Project, ProjectSummary } from '@romslig/shared'
-import { createApp } from './app.ts'
+import { buildInfoFromEnv, createApp } from './app.ts'
 import { FileStore } from './storage/file.ts'
 import { makePng } from './testutil.ts'
 
@@ -65,6 +65,20 @@ describe('API', () => {
     // The project itself (and its version) is untouched; the client saves planImage into it
     expect(((await (await app.request(`/api/projects/${p.id}`, as('kari'))).json()) as Project).version).toBe(1)
     expect((await upload('ola', makePng(10, 10))).status).toBe(404)
+  })
+
+  it('reports the build version in /config (and nulls without one)', async () => {
+    const cfg = async (a: ReturnType<typeof createApp>) =>
+      (await (await a.request('/api/config', as('kari'))).json()) as { build: unknown }
+    expect((await cfg(app)).build).toEqual({ version: null, sha: null })
+    const built = createApp(
+      await FileStore.open(root),
+      { mode: 'forward' },
+      {
+        build: buildInfoFromEnv({ APP_VERSION: '0.3.0', GIT_SHA: 'abcdef1234567' }),
+      },
+    )
+    expect((await cfg(built)).build).toEqual({ version: '0.3.0', sha: 'abcdef1234567' })
   })
 
   it('keeps the projects of different users apart', async () => {

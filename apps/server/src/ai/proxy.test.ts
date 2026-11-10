@@ -232,6 +232,7 @@ describe('/api/config', () => {
     expect(await res.json()).toEqual({
       aiMode: 'byok',
       user: { id: 'kari', email: null, name: null, groups: ['romslig-users'] },
+      build: { version: null, sha: null },
     })
   })
 
