@@ -3,30 +3,38 @@ import {
   clampOpening,
   closestPointOnSegment,
   detectRoomPolygons,
+  interiorPoint,
   mul,
   pointInPolygon,
-  polygonCentroid,
   wallDir,
 } from './geometry.ts'
 import { roomAt, roomEdges, type PlanSide } from './furniture.ts'
 import { newId, type Room, type Scenario } from './model.ts'
 
 /**
- * Re-detects rooms from the walls. Rooms that still exist (their old centre lies in a new room)
- * keep id, name, type and stated area; furniture is re-assigned to the room it now stands in.
+ * Re-detects rooms from the walls. Rooms that still exist (a point inside the old room lies in a
+ * new room) keep id, name, type and stated area. Rooms that lie outside everything the walls
+ * enclose are kept as they are: they were drawn by hand across an open area. Furniture is
+ * re-assigned to the room it now stands in.
  */
 export function redetectRooms(s: Scenario): Scenario {
   const used = new Set<string>()
-  const rooms: Room[] = detectRoomPolygons(s.walls).map((poly, i) => {
-    const prev = s.rooms.find(
-      (r) => !used.has(r.id) && r.polygon.length >= 3 && pointInPolygon(polygonCentroid(r.polygon), poly),
-    )
+  const polygons = detectRoomPolygons(s.walls)
+  const inside = new Map(s.rooms.filter((r) => r.polygon.length >= 3).map((r) => [r.id, interiorPoint(r.polygon)]))
+  const detected: Room[] = polygons.map((poly, i) => {
+    const prev = s.rooms.find((r) => !used.has(r.id) && inside.has(r.id) && pointInPolygon(inside.get(r.id)!, poly))
     if (prev) {
       used.add(prev.id)
       return { ...prev, polygon: poly }
     }
     return { id: newId('r_'), name: `Rom ${i + 1}`, type: 'annet', polygon: poly, statedArea: null }
   })
+  const drawn = s.rooms.filter((r) => {
+    const p = inside.get(r.id)
+    if (!p || used.has(r.id)) return false
+    return !polygons.some((poly) => pointInPolygon(p, poly) || pointInPolygon(interiorPoint(poly), r.polygon))
+  })
+  const rooms = [...detected, ...drawn]
   const furniture = s.furniture.map((f) => ({ ...f, roomId: roomAt(f, rooms)?.id ?? null }))
   return { ...s, rooms, furniture }
 }

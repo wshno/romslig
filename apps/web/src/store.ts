@@ -2,10 +2,17 @@ import { create } from 'zustand'
 import { temporal } from 'zundo'
 import {
   DEFAULTS,
+  fitRoomToWalls,
+  followWalls,
   getCatalogItem,
   itemSize,
+  moveWallEndpoint,
   newId,
   redetectRooms,
+  removeRoom,
+  removeWall,
+  replaceGeometry,
+  rescaleScenario,
   roomAt,
   snapToWall,
   type ChatMessage,
@@ -30,6 +37,7 @@ import {
   type Scenario,
   type Vec2,
   type Wall,
+  type WallEnd,
 } from '@romslig/shared'
 
 export type Tool =
@@ -77,6 +85,11 @@ interface State {
 
   addWall(a: Vec2, b: Vec2): Wall
   updateWall(id: string, patch: Partial<Wall>): void
+  /**
+   * Moves one end of a wall to `to` while it is dragged. `base` is the variant as it was when the
+   * drag started: connected walls, openings and rooms are worked out from there on every move.
+   */
+  dragWallEndpoint(base: Scenario, wallId: string, end: WallEnd, to: Vec2): void
   addOpening(kind: OpeningKind, wallId: string, offset: number): void
   updateOpening(id: string, patch: Partial<Opening>): void
   addRoom(polygon: Vec2[]): void
@@ -120,8 +133,6 @@ interface State {
 
 export const activeScenario = (p: Project): Scenario =>
   p.scenarios.find((s) => s.id === p.activeScenarioId) ?? p.scenarios[0]!
-
-const scaleVec = (v: Vec2, k: number): Vec2 => ({ x: v.x * k, y: v.y * k })
 
 export const useStore = create<State>()(
   temporal(
@@ -216,7 +227,13 @@ export const useStore = create<State>()(
         return wall
       },
       updateWall: (id, patch) =>
-        get().updateScenario((s) => ({ ...s, walls: s.walls.map((w) => (w.id === id ? { ...w, ...patch } : w)) })),
+        get().updateScenario((s) => {
+          const next = { ...s, walls: s.walls.map((w) => (w.id === id ? { ...w, ...patch } : w)) }
+          // Rooms are measured to the inside of their walls, so they change with the wall's shape
+          return 'a' in patch || 'b' in patch || 'thickness' in patch ? followWalls(s.walls, next) : next
+        }),
+      dragWallEndpoint: (base, wallId, end, to) =>
+        get().updateScenario((s) => (s.id === base.id ? moveWallEndpoint(base, wallId, end, to) : s)),
 
       addOpening: (kind, wallId, offset) => {
         const d = DEFAULTS[kind]
@@ -239,8 +256,10 @@ export const useStore = create<State>()(
           openings: s.openings.map((o) => (o.id === id ? { ...o, ...patch } : o)),
         })),
 
-      addRoom: (polygon) => {
+      addRoom: (drawn) => {
         const s = activeScenario(get().project!)
+        // Corners are clicked on the wall centre lines; a room is measured to the inside of its walls
+        const polygon = fitRoomToWalls(drawn, s.walls)
         const r: Room = { id: newId('r_'), name: `Rom ${s.rooms.length + 1}`, type: 'annet', polygon, statedArea: null }
         get().updateScenario((sc) => ({ ...sc, rooms: [...sc.rooms, r] }))
         set({ selection: { kind: 'room', id: r.id } })
@@ -305,14 +324,9 @@ export const useStore = create<State>()(
           if (sel.kind === 'fixture') return { ...s, fixtures: s.fixtures.filter((x) => x.id !== sel.id) }
           if (sel.kind === 'run') return { ...s, runs: s.runs.filter((r) => r.id !== sel.id) }
           if (sel.kind === 'ceiling') return { ...s, loweredCeilings: s.loweredCeilings.filter((c) => c.id !== sel.id) }
-          if (sel.kind === 'wall')
-            return {
-              ...s,
-              walls: s.walls.filter((w) => w.id !== sel.id),
-              openings: s.openings.filter((o) => o.wallId !== sel.id),
-            }
+          if (sel.kind === 'wall') return removeWall(s, sel.id)
           if (sel.kind === 'opening') return { ...s, openings: s.openings.filter((o) => o.id !== sel.id) }
-          return { ...s, rooms: s.rooms.filter((r) => r.id !== sel.id) }
+          return removeRoom(s, sel.id)
         })
         set({ selection: null })
       },
@@ -336,16 +350,7 @@ export const useStore = create<State>()(
           project: {
             ...p,
             calibration: { pxPerMeter: newPx, calibrated: true },
-            scenarios: p.scenarios.map((s) => ({
-              ...s,
-              walls: s.walls.map((w) => ({ ...w, a: scaleVec(w.a, k), b: scaleVec(w.b, k) })),
-              openings: s.openings.map((o) => ({ ...o, offset: o.offset * k, width: o.width * k })),
-              rooms: s.rooms.map((r) => ({ ...r, polygon: r.polygon.map((v) => scaleVec(v, k)) })),
-              furniture: s.furniture.map((f) => ({ ...f, x: f.x * k, y: f.y * k })),
-              fixtures: s.fixtures.map((x) => ({ ...x, x: x.x * k, y: x.y * k })),
-              runs: s.runs.map((r) => ({ ...r, points: r.points.map((v) => scaleVec(v, k)) })),
-              loweredCeilings: s.loweredCeilings.map((c) => ({ ...c, polygon: c.polygon.map((v) => scaleVec(v, k)) })),
-            })),
+            scenarios: p.scenarios.map((s) => rescaleScenario(s, k)),
           },
         })
       },
@@ -368,10 +373,16 @@ export const useStore = create<State>()(
           ),
         })),
       setSuggestion: (suggestion) => set({ suggestion }),
+      /**
+       * Takes the suggested walls, openings and rooms into the active variant. The suggestion comes
+       * with its own image scale, so everything else that was placed over the image (furniture,
+       * installations, the other variants) is rescaled to it, exactly as when calibrating.
+       */
       acceptSuggestion: () => {
         const sug = get().suggestion
         const p = get().project
         if (!sug || !p) return
+        const k = p.calibration.pxPerMeter / sug.pxPerMeter
         set({
           project: {
             ...p,
@@ -379,9 +390,10 @@ export const useStore = create<State>()(
               pxPerMeter: sug.pxPerMeter,
               calibrated: p.calibration.calibrated || sug.scaleSource !== 'none',
             },
-            scenarios: p.scenarios.map((s) =>
-              s.id === p.activeScenarioId ? { ...s, walls: sug.walls, openings: sug.openings, rooms: sug.rooms } : s,
-            ),
+            scenarios: p.scenarios.map((s) => {
+              const scaled = rescaleScenario(s, k)
+              return s.id === p.activeScenarioId ? replaceGeometry(scaled, sug) : scaled
+            }),
           },
           suggestion: null,
           selection: null,

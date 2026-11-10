@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { detectRoomPolygons, insetPolygon, polygonArea, snapPoint, wallPieces, v } from './geometry.ts'
+import {
+  detectRoomPolygons,
+  insetPolygon,
+  interiorPoint,
+  pointInPolygon,
+  polygonArea,
+  polygonCentroid,
+  snapPoint,
+  wallPieces,
+  v,
+} from './geometry.ts'
 import type { Opening, Wall } from './model.ts'
 
 let n = 0
@@ -104,5 +114,16 @@ describe('snapPoint', () => {
     const r = snapPoint(v(2.02, 0.06), { walls, anchor: v(2, 2), tolerance: 0.1, ortho: true })
     expect(r.kind).toBe('wall')
     expect(r.point.y).toBeCloseTo(0)
+  })
+})
+
+describe('interiorPoint', () => {
+  it('is the centroid for a convex room', () => {
+    expect(interiorPoint([v(0, 0), v(4, 0), v(4, 3), v(0, 3)])).toEqual(v(2, 1.5))
+  })
+  it('lies inside a U-shaped room, whose centroid does not', () => {
+    const u = [v(0, 0), v(5, 0), v(5, 4), v(4, 4), v(4, 1), v(1, 1), v(1, 4), v(0, 4)]
+    expect(pointInPolygon(polygonCentroid(u), u)).toBe(false)
+    expect(pointInPolygon(interiorPoint(u), u)).toBe(true)
   })
 })
