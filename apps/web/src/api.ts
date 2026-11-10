@@ -127,6 +127,15 @@ export const api = {
       body: JSON.stringify(p),
     }),
   remove: (id: string) => req<void>(`/api/projects/${id}`, { method: 'DELETE' }),
+  /** Renames from the project list. In the editor the name is saved with the rest of the project. */
+  rename: (id: string, name: string) =>
+    req<Project>(`/api/projects/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+  /** Makes a copy with everything in it, floor plan included, named "<name> (kopi)". */
+  copy: (id: string) => req<Project>(`/api/projects/${id}/copy`, { method: 'POST' }),
   /** Uploads (or replaces) the floor plan; the caller puts the answer into the project. */
   uploadPlan: async (id: string, image: File) => {
     const fd = new FormData()
@@ -137,6 +146,9 @@ export const api = {
     })
   },
   planUrl: (id: string) => `/api/projects/${id}/plan`,
+  /** A small SVG drawing of the active variant. `updatedAt` makes the address change when the project does. */
+  thumbnailUrl: (p: Pick<ProjectSummary, 'id' | 'updatedAt'>) =>
+    `/api/projects/${p.id}/thumbnail?v=${encodeURIComponent(p.updatedAt)}`,
 }
 
 /**

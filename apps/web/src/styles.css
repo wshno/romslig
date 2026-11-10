@@ -134,11 +134,45 @@ select {
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
-.project-list li a {
+.project-list .thumb {
+  flex: none;
+  width: 72px;
+  height: 54px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+.project-list .thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.project-list .project-info {
   flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.project-list .project-info a {
   font-weight: 600;
   color: var(--accent);
   text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.project-list .project-info .muted {
+  font-size: 12px;
+}
+.project-list .rename {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+}
+.project-list .rename input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Editor layout */

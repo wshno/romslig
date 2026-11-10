@@ -16,6 +16,13 @@ export const test = guardsTest.extend({
       (e) => e.type === 'warning' && e.text.includes('GL Driver Message'),
     ],
   },
+  // The project list asks for a thumbnail per project. The specs share one user and run side by side, so
+  // a project another spec has just deleted can still be in the list this page fetched.
+  requestGuard: {
+    allow: [
+      (r) => r.status === 404 && r.resourceType === 'image' && /\/api\/projects\/[\w-]+\/thumbnail\?/.test(r.url),
+    ],
+  },
 })
 
 /**
