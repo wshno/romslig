@@ -1,28 +1,91 @@
 import { digitizeScale, type PlanImageInput } from '@romslig/ai'
 import type { Project, ProjectSummary } from '@romslig/shared'
 
-/** An error response from our API, with its HTTP status (e.g. 409 when another device saved first). */
+/**
+ * Who refused a request:
+ * - `api`: our own API, with a message of its own (e.g. 409 when another device saved first)
+ * - `login`: the login in front of the app, because the session has run out
+ * - `edge`: something else on the way (a firewall, the gateway, a proxy), or nothing behind it answered
+ */
+export type ErrorSource = 'api' | 'login' | 'edge'
+
+/** A request that was answered with an error, with its HTTP status and who it came from. */
 export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public source: ErrorSource = 'api',
   ) {
     super(message)
   }
 }
 
-async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init)
-  if (!res.ok) {
-    let msg = `${res.status} ${res.statusText}`
-    try {
-      msg = (await res.json()).error ?? msg
-    } catch {
-      /* ignore */
-    }
-    throw new ApiError(res.status, msg)
+/** A request that got no answer at all. It has no status, and may well pass if it is sent again. */
+export class NetworkError extends Error {
+  constructor() {
+    super('Får ikke kontakt med Romslig. Sjekk nettforbindelsen og prøv igjen.')
   }
-  return res.status === 204 ? (undefined as T) : res.json()
+}
+
+const LOGIN_EXPIRED = 'Innloggingen er utløpt. Logg inn igjen i en ny fane og prøv på nytt.'
+
+function edgeMessage(status: number): string {
+  if (status === 403)
+    return `Forespørselen ble stoppet før den nådde Romslig (HTTP 403). En brannmur eller gateway foran appen avviste den.`
+  if (status === 413) return `Opplastingen er for stor for brannmuren eller gatewayen foran Romslig (HTTP 413).`
+  if (status >= 500) return `Romslig svarer ikke akkurat nå (HTTP ${status}). Prøv igjen om litt.`
+  return `Uventet svar på vei til Romslig (HTTP ${status}). Det kom ikke fra appen.`
+}
+
+const isJson = (res: Response) => (res.headers.get('Content-Type') ?? '').includes('application/json')
+
+/** The message of an error from our API: it always answers with JSON `{ error }`. Null for anything else. */
+async function ownError(res: Response): Promise<string | null> {
+  if (!isJson(res)) return null
+  try {
+    const body = (await res.json()) as { error?: unknown } | null
+    return typeof body?.error === 'string' ? body.error : null
+  } catch {
+    return null
+  }
+}
+
+async function failure(res: Response): Promise<ApiError> {
+  // Our API never redirects. A redirect is the login sending the browser to its sign-in page.
+  if (res.type === 'opaqueredirect') return new ApiError(401, LOGIN_EXPIRED, 'login')
+  const own = await ownError(res)
+  if (own !== null) return new ApiError(res.status, own)
+  if (res.status === 401) return new ApiError(401, LOGIN_EXPIRED, 'login')
+  return new ApiError(res.status, edgeMessage(res.status), 'edge')
+}
+
+/**
+ * Sends a request to our API and returns the answer when it is a success. Otherwise it throws an
+ * error that says in plain words who refused: `ApiError`, or `NetworkError` when no answer came.
+ *
+ * `Accept` leaves out `text/html` so that the login answers a script with 401. Asked for a page,
+ * it redirects to its sign-in page on another origin, which the browser reports as a failed fetch.
+ */
+async function send(url: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers)
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json')
+  let res: Response
+  try {
+    res = await fetch(url, { redirect: 'manual', ...init, headers })
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') throw e
+    throw new NetworkError()
+  }
+  if (!res.ok) throw await failure(res)
+  return res
+}
+
+async function req<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await send(url, init)
+  if (res.status === 204) return undefined as T
+  // A success that is not JSON is a page from something in front of the app
+  if (!isJson(res)) throw new ApiError(res.status, edgeMessage(res.status), 'edge')
+  return (await res.json()) as T
 }
 
 /**
@@ -82,8 +145,7 @@ export const api = {
  */
 export async function preparePlanForAi(project: Project): Promise<{ image: PlanImageInput; scale: number }> {
   if (!project.planImage) throw new Error('Prosjektet har ingen plantegning.')
-  const res = await fetch(api.planUrl(project.id))
-  if (!res.ok) throw new ApiError(res.status, 'Kunne ikke hente plantegningen.')
+  const res = await send(api.planUrl(project.id), { headers: { Accept: 'image/*' } })
   const bitmap = await createImageBitmap(await res.blob())
   const { width: W, height: H } = project.planImage
   const scale = digitizeScale(W, H)
