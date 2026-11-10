@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { clampOpening, fitOpening } from './geometry.ts'
+import { doorSwingPolygon } from './furniture.ts'
+import { clampOpening, dist, fitOpening, v } from './geometry.ts'
 import { DEFAULTS, withOpeningKind, type Opening, type Wall } from './model.ts'
+import { doorLeaf } from './openings.ts'
 
 const wall: Wall = {
   id: 'w',
@@ -81,5 +83,46 @@ describe('withOpeningKind', () => {
   it('keeps everything else', () => {
     const o = withOpeningKind(door({ flip: true, offset: 3 }), 'window')
     expect(o).toMatchObject({ id: 'o', wallId: 'w', flip: true, offset: 3 })
+  })
+})
+
+/** A wall from the origin, so the leaf's corners are easy to read. */
+const leafWall: Wall = { ...wall, a: v(0, 0), b: v(4, 0) }
+const leafDoor = door()
+
+describe('doorLeaf', () => {
+  it('stands at a right angle to the wall, hinged at the start of the opening', () => {
+    const leaf = doorLeaf(leafDoor, leafWall)!
+    expect(leaf.hinge.x).toBeCloseTo(1.55)
+    expect(leaf.hinge.y).toBeCloseTo(-0.05) // on the face of the wall
+    expect(leaf.tip.x).toBeCloseTo(1.55)
+    expect(leaf.tip.y).toBeCloseTo(-0.95)
+    expect(dist(leaf.hinge, leaf.tip)).toBeCloseTo(0.9)
+  })
+  it('follows the door to the other side of the wall', () => {
+    const leaf = doorLeaf({ ...leafDoor, flip: true }, leafWall)!
+    expect(leaf.hinge.y).toBeCloseTo(0.05)
+    expect(leaf.tip.y).toBeCloseTo(0.95)
+  })
+  it('runs along one edge of the square the swing check keeps free', () => {
+    for (const flip of [false, true]) {
+      for (const w of [leafWall, { ...leafWall, a: v(1, 1), b: v(3, 4) }]) {
+        const o = { ...leafDoor, flip, offset: 1.5 }
+        const leaf = doorLeaf(o, w)!
+        const swing = doorSwingPolygon(o, w)!
+        expect(dist(leaf.hinge, swing[0]!)).toBeCloseTo(0)
+        expect(dist(leaf.tip, swing[3]!)).toBeCloseTo(0)
+      }
+    }
+  })
+  it('stays inside a wall shorter than the door is wide', () => {
+    const short = { ...leafWall, b: v(0.6, 0) }
+    const leaf = doorLeaf(leafDoor, short)!
+    expect(leaf.hinge.x).toBeCloseTo(0)
+    expect(dist(leaf.hinge, leaf.tip)).toBeCloseTo(0.6)
+  })
+  it('is only for doors', () => {
+    expect(doorLeaf({ ...leafDoor, kind: 'window' }, leafWall)).toBeNull()
+    expect(doorLeaf({ ...leafDoor, kind: 'opening' }, leafWall)).toBeNull()
   })
 })
