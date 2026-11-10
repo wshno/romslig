@@ -9,6 +9,10 @@
 ARG PLAYWRIGHT_CONFIG_VERSION=0.4.0
 FROM ghcr.io/wshno/playwright-config:${PLAYWRIGHT_CONFIG_VERSION}
 
+# A UTF-8 locale, as on a user's machine. Without one Chromium cannot write a file name with æøå
+# in it and calls every such download "download".
+ENV LANG=C.UTF-8
+
 WORKDIR /e2e
 
 # Manifests first: a change to the specs alone keeps the npm ci layer cached.

@@ -15,6 +15,8 @@ const remote = Boolean(process.env.BASE_URL)
 export default definePlaywrightConfig({
   use: {
     baseURL: process.env.BASE_URL ?? 'http://localhost:5173',
+    // Also for the first attempt: a test that fails once and passes on retry is the one we need to see.
+    trace: 'retain-on-failure',
   },
   // Specs that need the compose stack itself (e.g. a second user through the second proxy port).
   grepInvert: remote ? /@local-only/ : undefined,
