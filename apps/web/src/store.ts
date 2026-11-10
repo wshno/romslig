@@ -2,10 +2,17 @@ import { create } from 'zustand'
 import { temporal } from 'zundo'
 import {
   DEFAULTS,
+  fitRoomToWalls,
+  followWalls,
   getCatalogItem,
   itemSize,
+  moveWallEndpoint,
   newId,
   redetectRooms,
+  removeRoom,
+  removeWall,
+  replaceGeometry,
+  rescaleScenario,
   roomAt,
   snapToWall,
   type ChatMessage,
@@ -22,6 +29,7 @@ import {
   FIXTURE_INFO,
   RUN_INFO,
   defaultRunHeight,
+  fitOpening,
   type Opening,
   type Note,
   type OpeningKind,
@@ -30,6 +38,7 @@ import {
   type Scenario,
   type Vec2,
   type Wall,
+  type WallEnd,
 } from '@romslig/shared'
 
 export type Tool =
@@ -77,6 +86,11 @@ interface State {
 
   addWall(a: Vec2, b: Vec2): Wall
   updateWall(id: string, patch: Partial<Wall>): void
+  /**
+   * Moves one end of a wall to `to` while it is dragged. `base` is the variant as it was when the
+   * drag started: connected walls, openings and rooms are worked out from there on every move.
+   */
+  dragWallEndpoint(base: Scenario, wallId: string, end: WallEnd, to: Vec2): void
   addOpening(kind: OpeningKind, wallId: string, offset: number): void
   updateOpening(id: string, patch: Partial<Opening>): void
   addRoom(polygon: Vec2[]): void
@@ -118,10 +132,17 @@ interface State {
   deleteScenario(id: string): void
 }
 
+/** An opening is never wider than its wall, and never sticks out past the end of it. */
+function inWall(o: Opening, s: Scenario): Opening {
+  const wall = s.walls.find((w) => w.id === o.wallId)
+  return wall ? fitOpening(o, wall) : o
+}
+
 export const activeScenario = (p: Project): Scenario =>
   p.scenarios.find((s) => s.id === p.activeScenarioId) ?? p.scenarios[0]!
 
-const scaleVec = (v: Vec2, k: number): Vec2 => ({ x: v.x * k, y: v.y * k })
+/** How many undo steps are kept. */
+const HISTORY_LIMIT = 200
 
 export const useStore = create<State>()(
   temporal(
@@ -216,7 +237,13 @@ export const useStore = create<State>()(
         return wall
       },
       updateWall: (id, patch) =>
-        get().updateScenario((s) => ({ ...s, walls: s.walls.map((w) => (w.id === id ? { ...w, ...patch } : w)) })),
+        get().updateScenario((s) => {
+          const next = { ...s, walls: s.walls.map((w) => (w.id === id ? { ...w, ...patch } : w)) }
+          // Rooms are measured to the inside of their walls, so they change with the wall's shape
+          return 'a' in patch || 'b' in patch || 'thickness' in patch ? followWalls(s.walls, next) : next
+        }),
+      dragWallEndpoint: (base, wallId, end, to) =>
+        get().updateScenario((s) => (s.id === base.id ? moveWallEndpoint(base, wallId, end, to) : s)),
 
       addOpening: (kind, wallId, offset) => {
         const d = DEFAULTS[kind]
@@ -230,17 +257,19 @@ export const useStore = create<State>()(
           sill: d.sill,
           flip: false,
         }
-        get().updateScenario((s) => ({ ...s, openings: [...s.openings, o] }))
+        get().updateScenario((s) => ({ ...s, openings: [...s.openings, inWall(o, s)] }))
         set({ selection: { kind: 'opening', id: o.id } })
       },
       updateOpening: (id, patch) =>
         get().updateScenario((s) => ({
           ...s,
-          openings: s.openings.map((o) => (o.id === id ? { ...o, ...patch } : o)),
+          openings: s.openings.map((o) => (o.id === id ? inWall({ ...o, ...patch }, s) : o)),
         })),
 
-      addRoom: (polygon) => {
+      addRoom: (drawn) => {
         const s = activeScenario(get().project!)
+        // Corners are clicked on the wall centre lines; a room is measured to the inside of its walls
+        const polygon = fitRoomToWalls(drawn, s.walls)
         const r: Room = { id: newId('r_'), name: `Rom ${s.rooms.length + 1}`, type: 'annet', polygon, statedArea: null }
         get().updateScenario((sc) => ({ ...sc, rooms: [...sc.rooms, r] }))
         set({ selection: { kind: 'room', id: r.id } })
@@ -305,14 +334,9 @@ export const useStore = create<State>()(
           if (sel.kind === 'fixture') return { ...s, fixtures: s.fixtures.filter((x) => x.id !== sel.id) }
           if (sel.kind === 'run') return { ...s, runs: s.runs.filter((r) => r.id !== sel.id) }
           if (sel.kind === 'ceiling') return { ...s, loweredCeilings: s.loweredCeilings.filter((c) => c.id !== sel.id) }
-          if (sel.kind === 'wall')
-            return {
-              ...s,
-              walls: s.walls.filter((w) => w.id !== sel.id),
-              openings: s.openings.filter((o) => o.wallId !== sel.id),
-            }
+          if (sel.kind === 'wall') return removeWall(s, sel.id)
           if (sel.kind === 'opening') return { ...s, openings: s.openings.filter((o) => o.id !== sel.id) }
-          return { ...s, rooms: s.rooms.filter((r) => r.id !== sel.id) }
+          return removeRoom(s, sel.id)
         })
         set({ selection: null })
       },
@@ -336,16 +360,7 @@ export const useStore = create<State>()(
           project: {
             ...p,
             calibration: { pxPerMeter: newPx, calibrated: true },
-            scenarios: p.scenarios.map((s) => ({
-              ...s,
-              walls: s.walls.map((w) => ({ ...w, a: scaleVec(w.a, k), b: scaleVec(w.b, k) })),
-              openings: s.openings.map((o) => ({ ...o, offset: o.offset * k, width: o.width * k })),
-              rooms: s.rooms.map((r) => ({ ...r, polygon: r.polygon.map((v) => scaleVec(v, k)) })),
-              furniture: s.furniture.map((f) => ({ ...f, x: f.x * k, y: f.y * k })),
-              fixtures: s.fixtures.map((x) => ({ ...x, x: x.x * k, y: x.y * k })),
-              runs: s.runs.map((r) => ({ ...r, points: r.points.map((v) => scaleVec(v, k)) })),
-              loweredCeilings: s.loweredCeilings.map((c) => ({ ...c, polygon: c.polygon.map((v) => scaleVec(v, k)) })),
-            })),
+            scenarios: p.scenarios.map((s) => rescaleScenario(s, k)),
           },
         })
       },
@@ -368,10 +383,16 @@ export const useStore = create<State>()(
           ),
         })),
       setSuggestion: (suggestion) => set({ suggestion }),
+      /**
+       * Takes the suggested walls, openings and rooms into the active variant. The suggestion comes
+       * with its own image scale, so everything else that was placed over the image (furniture,
+       * installations, the other variants) is rescaled to it, exactly as when calibrating.
+       */
       acceptSuggestion: () => {
         const sug = get().suggestion
         const p = get().project
         if (!sug || !p) return
+        const k = p.calibration.pxPerMeter / sug.pxPerMeter
         set({
           project: {
             ...p,
@@ -379,9 +400,10 @@ export const useStore = create<State>()(
               pxPerMeter: sug.pxPerMeter,
               calibrated: p.calibration.calibrated || sug.scaleSource !== 'none',
             },
-            scenarios: p.scenarios.map((s) =>
-              s.id === p.activeScenarioId ? { ...s, walls: sug.walls, openings: sug.openings, rooms: sug.rooms } : s,
-            ),
+            scenarios: p.scenarios.map((s) => {
+              const scaled = rescaleScenario(s, k)
+              return s.id === p.activeScenarioId ? replaceGeometry(scaled, sug) : scaled
+            }),
           },
           suggestion: null,
           selection: null,
@@ -389,7 +411,8 @@ export const useStore = create<State>()(
       },
 
       setActiveScenario: (id) => {
-        get().updateProject((p) => ({ ...p, activeScenarioId: id }))
+        // Which variant is shown is not a change to the drawing, so it is not an undo step
+        untracked(() => get().updateProject((p) => ({ ...p, activeScenarioId: id })))
         set({ selection: null })
       },
       duplicateScenario: (name) =>
@@ -414,36 +437,116 @@ export const useStore = create<State>()(
     {
       partialize: (s) => ({ project: s.project }),
       equality: (a, b) => a.project === b.project,
-      limit: 200,
+      limit: HISTORY_LIMIT,
     },
   ),
 )
 
 export const useScenario = () => useStore((s) => (s.project ? activeScenario(s.project) : null))
-export const undo = () => useStore.temporal.getState().undo()
-export const redo = () => useStore.temporal.getState().redo()
+
+/** True when what is selected is still there in the active variant. */
+function selectionExists(p: Project, sel: NonNullable<Selection>): boolean {
+  const s = activeScenario(p)
+  const lists = {
+    wall: s.walls,
+    opening: s.openings,
+    room: s.rooms,
+    furniture: s.furniture,
+    fixture: s.fixtures,
+    run: s.runs,
+    ceiling: s.loweredCeilings,
+  }
+  return lists[sel.kind].some((x) => x.id === sel.id)
+}
+
+// The selection never points at something that is gone (after undo, a variant switch or a change
+// made by the assistant), so the inspector and the keyboard shortcuts always act on something real.
+useStore.subscribe((s, prev) => {
+  if (s.project !== prev.project && s.selection && !(s.project && selectionExists(s.project, s.selection)))
+    useStore.setState({ selection: null })
+})
+
+const history = () => useStore.temporal.getState()
+
+/** Changes the project without leaving an undo step. */
+function untracked(change: () => void) {
+  const h = history()
+  if (!h.isTracking) return change()
+  h.pause()
+  try {
+    change()
+  } finally {
+    h.resume()
+  }
+}
+
+export const undo = () => {
+  endGesture()
+  history().undo()
+}
+export const redo = () => {
+  endGesture()
+  history().redo()
+}
+
+/** Forgets the undo history (a project was loaded). */
+export function resetHistory() {
+  gesture = null
+  history().resume()
+  history().clear()
+}
 
 /**
- * Groups continuous edits (dragging) into a single undo step: call beginGesture()
- * on drag start and endGesture() on drag end.
+ * Groups continuous edits (dragging) into a single undo step: call beginGesture() on drag start
+ * and endGesture() on drag end. Gestures do not nest: starting one ends the one that was open.
  */
-let gestureSnapshot: Project | null = null
+let gesture: { start: Project | null } | null = null
 export function beginGesture() {
-  gestureSnapshot = useStore.getState().project
-  useStore.temporal.getState().pause()
+  endGesture()
+  gesture = { start: useStore.getState().project }
+  history().pause()
 }
 export function endGesture() {
-  const t = useStore.temporal.getState()
-  const final = useStore.getState().project
-  if (gestureSnapshot && final !== gestureSnapshot) {
-    useStore.setState({ project: gestureSnapshot })
-    t.resume()
-    useStore.setState({ project: final })
-  } else t.resume()
-  gestureSnapshot = null
+  if (!gesture) return
+  const { start } = gesture
+  gesture = null
+  history().resume()
+  // The whole gesture is one change: from the project as it was when it started
+  if (start && useStore.getState().project !== start)
+    useStore.temporal.setState((h) => ({
+      pastStates: [...h.pastStates, { project: start }].slice(-HISTORY_LIMIT),
+      futureStates: [],
+    }))
 }
 
-if (import.meta.env.DEV) (window as unknown as { __romslig: unknown }).__romslig = useStore
+/**
+ * Lets a run of changes share one undo step, such as the keystrokes in a field: call before()
+ * right before each change and after() right after it. The first change makes a step as usual.
+ * The following ones join it for as long as that step is the newest one, so a change made by
+ * something else in between (or an undo) starts a new step.
+ */
+export function mergeSteps() {
+  let own: unknown = null
+  let top: unknown = null
+  let joining = false
+  const newest = () => history().pastStates.at(-1) ?? null
+  return {
+    before() {
+      if (joining) history().resume() // after() was never reached, e.g. the change threw
+      top = newest()
+      joining = own !== null && top === own && history().isTracking
+      if (joining) history().pause()
+    },
+    after() {
+      if (joining) {
+        joining = false
+        history().resume()
+      } else if (newest() !== top) own = newest()
+    },
+  }
+}
+
+if (import.meta.env.DEV) (globalThis as unknown as { __romslig: unknown }).__romslig = useStore
 
 // Keep the editor state when Vite hot-replaces this module (e.g. after an edit in packages/shared),
 // instead of falling back to an empty store that shows «Laster prosjekt…» until a reload.

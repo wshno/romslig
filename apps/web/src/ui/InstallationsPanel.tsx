@@ -18,6 +18,7 @@ import {
 } from '@romslig/shared'
 import { activeScenario, useStore } from '../store.ts'
 import { fmtM, fmtM2 } from '../theme.ts'
+import { CmField } from './fields.tsx'
 
 function Header({ title }: { title: string }) {
   const { select, deleteSelected } = useStore.getState()
@@ -31,26 +32,6 @@ function Header({ title }: { title: string }) {
         Slett
       </button>
     </div>
-  )
-}
-
-function CmField({ label, value, onChange }: { label: string; value: number; onChange(v: number): void }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <span className="num">
-        <input
-          type="number"
-          step={1}
-          value={Math.round(value * 100)}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value)
-            if (!Number.isNaN(v)) onChange(v / 100)
-          }}
-        />
-        <em>cm</em>
-      </span>
-    </label>
   )
 }
 
@@ -206,6 +187,9 @@ export function InstallationsOverview() {
     counts.set(FIXTURE_INFO[f.kind].name, (counts.get(FIXTURE_INFO[f.kind].name) ?? 0) + 1)
   }
   const empty = !scenario.fixtures.length && !scenario.runs.length && !scenario.loweredCeilings.length
+  const summary = [...counts].map(([name, n]) => `${n} × ${name.toLowerCase()}`)
+  if (scenario.runs.length) summary.push(scenario.runs.length === 1 ? '1 føring' : `${scenario.runs.length} føringer`)
+  if (scenario.loweredCeilings.length) summary.push(`${scenario.loweredCeilings.length} nedforet tak`)
   const missing = (['fuse_box', 'main_valve'] as const).filter((k) => !scenario.fixtures.some((f) => f.kind === k))
   return (
     <>
@@ -228,13 +212,7 @@ export function InstallationsOverview() {
           )
         })}
       </ul>
-      {counts.size > 0 && (
-        <p className="muted">
-          {[...counts].map(([name, n]) => `${n} × ${name.toLowerCase()}`).join(', ')}
-          {scenario.runs.length > 0 && `, ${scenario.runs.length} føringer`}
-          {scenario.loweredCeilings.length > 0 && `, ${scenario.loweredCeilings.length} nedforet tak`}
-        </p>
-      )}
+      {summary.length > 0 && <p className="muted">{summary.join(', ')}</p>}
       {!empty && missing.length > 0 && (
         <p className="note">
           Ikke lagt inn: {missing.map((k) => FIXTURE_INFO[k].name.toLowerCase()).join(' og ')}.{' '}
