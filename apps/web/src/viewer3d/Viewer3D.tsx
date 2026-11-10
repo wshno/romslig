@@ -12,6 +12,7 @@ import { Installations3D } from './Installations3D.tsx'
 /** Converts a screen position to a point on the floor; set by <FloorPicker> inside the canvas. */
 type FloorPick = (clientX: number, clientY: number) => { x: number; y: number } | null
 import { ROOM_COLORS } from '../theme.ts'
+import { useWalkStep } from './useWalkStep.ts'
 
 type CameraMode = 'orbit' | 'walk'
 
@@ -248,6 +249,7 @@ function Glass({ wall, o, cutHeight }: { wall: Wall; o: Opening; cutHeight: numb
 function Walk({ start, onExit }: { start: [number, number]; onExit(): void }) {
   const { camera } = useThree()
   const keysRef = useRef<Record<string, boolean>>({})
+  const step = useWalkStep()
   useEffect(() => {
     camera.position.set(start[0], 1.6, start[1])
     const down = (e: KeyboardEvent) => (keysRef.current[e.code] = true)
@@ -261,17 +263,21 @@ function Walk({ start, onExit }: { start: [number, number]; onExit(): void }) {
   }, [camera, start])
   useFrame((_, dt) => {
     const k = keysRef.current
-    const speed = (k.ShiftLeft ? 3 : 1.4) * dt
+    // A frame that took long (the tab was in the background) is not a long stride
+    const speed = (k.ShiftLeft ? 3 : 1.4) * Math.min(dt, 0.1)
     const fwd = new THREE.Vector3()
     camera.getWorldDirection(fwd)
     fwd.y = 0
     fwd.normalize()
     const right = new THREE.Vector3().crossVectors(fwd, camera.up).normalize()
-    if (k.KeyW || k.ArrowUp) camera.position.addScaledVector(fwd, speed)
-    if (k.KeyS || k.ArrowDown) camera.position.addScaledVector(fwd, -speed)
-    if (k.KeyD || k.ArrowRight) camera.position.addScaledVector(right, speed)
-    if (k.KeyA || k.ArrowLeft) camera.position.addScaledVector(right, -speed)
-    camera.position.y = 1.6
+    const to = camera.position.clone()
+    if (k.KeyW || k.ArrowUp) to.addScaledVector(fwd, speed)
+    if (k.KeyS || k.ArrowDown) to.addScaledVector(fwd, -speed)
+    if (k.KeyD || k.ArrowRight) to.addScaledVector(right, speed)
+    if (k.KeyA || k.ArrowLeft) to.addScaledVector(right, -speed)
+    // Walls stop the walk, doors and doorways let it through
+    const p = step({ x: camera.position.x, y: camera.position.z }, { x: to.x, y: to.z })
+    camera.position.set(p.x, 1.6, p.y)
   })
   return <PointerLockControls makeDefault onUnlock={onExit} />
 }
