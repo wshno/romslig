@@ -9,15 +9,16 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.6.0",
-    "@romslig/ai": "*",
-    "@romslig/shared": "*",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
+    "@romslig/ai": "*",
+    "@romslig/shared": "*",
     "konva": "^10.9.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-konva": "^19.3.2",
     "three": "^0.187.0",
+    "zod": "^4.6.7",
     "zundo": "^2.3.0",
     "zustand": "^5.1.0"
   },
