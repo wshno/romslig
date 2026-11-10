@@ -5,7 +5,7 @@ import { defineConfig } from 'vitest/config'
 // each workspace on its own.
 export default defineConfig({
   test: {
-    projects: ['packages/*', 'apps/server'],
+    projects: ['packages/*', 'apps/server', 'apps/web'],
     reporters: ['default', 'junit', 'json'],
     outputFile: {
       junit: './coverage/junit-report.xml',
