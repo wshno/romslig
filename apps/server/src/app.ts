@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { Project, emptyScenario, newId } from '@romslig/shared'
+import { Project, emptyScenario, newId, planThumbnailSvg } from '@romslig/shared'
 import { auth, type AuthOptions, type User } from './auth.ts'
 import { HttpError } from './errors.ts'
 import { MAX_PLAN_BYTES, readPngSize } from './png.ts'
@@ -27,6 +27,9 @@ async function readPlanUpload(image: File) {
 
 /** Default scale until calibrated: assume the plan is about 15 m across. */
 const defaultPxPerMeter = (width: number, height: number) => Math.max(width, height) / 15
+
+/** Longest project name we store. */
+const MAX_NAME = 200
 
 export interface AppOptions {
   ai?: AiConfig
@@ -115,6 +118,54 @@ export function createApp(store: ProjectStore, authOpts: AuthOptions, opts: AppO
   app.delete('/projects/:id', async (c) => {
     await store.delete(owner(c), c.req.param('id'))
     return c.body(null, 204)
+  })
+
+  /** Renames a project from the list, without the browser having to send the whole project back. */
+  app.patch('/projects/:id', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { name?: unknown } | null
+    const name = typeof body?.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : ''
+    if (!name) throw new HttpError(400, 'Mangler navn.')
+    const project = await store.get(owner(c), c.req.param('id'))
+    return c.json(await store.update(owner(c), { ...project, name }, project.version))
+  })
+
+  /** A copy of everything in the project: variants, furniture, chat and the floor plan. */
+  app.post('/projects/:id/copy', async (c) => {
+    const source = await store.get(owner(c), c.req.param('id'))
+    const png = source.planImage
+      ? await store.getPlan(owner(c), source.id).catch((e: unknown) => {
+          // The project says it has a plan, but the image is gone: copy it without one
+          if (e instanceof HttpError && e.status === 404) return null
+          throw e
+        })
+      : null
+    const now = new Date().toISOString()
+    const suffix = ' (kopi)'
+    const copy: Project = {
+      ...source,
+      id: newId('p_'),
+      name: source.name.slice(0, MAX_NAME - suffix.length) + suffix,
+      planImage: png ? source.planImage : null,
+      version: 0,
+      createdAt: now,
+      updatedAt: now,
+    }
+    return c.json(await store.create(owner(c), copy, png), 201)
+  })
+
+  /**
+   * A small drawing of the active variant, for the project list. The SVG holds numbers and our own
+   * colours only (see planThumbnailSvg), and the CSP keeps it inert if someone opens it directly.
+   */
+  app.get('/projects/:id/thumbnail', async (c) => {
+    const project = await store.get(owner(c), c.req.param('id'))
+    const scenario = project.scenarios.find((s) => s.id === project.activeScenarioId) ?? project.scenarios[0]!
+    return c.body(planThumbnailSvg(scenario), 200, {
+      'Content-Type': 'image/svg+xml',
+      'Cache-Control': 'private, no-cache',
+      'Content-Security-Policy': "default-src 'none'",
+      'X-Content-Type-Options': 'nosniff',
+    })
   })
 
   /**

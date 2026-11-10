@@ -47,4 +47,32 @@ test.describe('projects', () => {
     await row.getByRole('button', { name: 'Slett' }).click()
     await expect(row).toHaveCount(0)
   })
+
+  test('a project gets a thumbnail in the list, and is renamed and copied from there', async ({ page }) => {
+    const name = projectName('liste')
+    const ids = [await createProject(page, name)]
+    try {
+      await page.goto('/')
+      const row = (text: string) => page.getByRole('listitem').filter({ hasText: text })
+      await row(name).scrollIntoViewIfNeeded()
+      const thumbnail = row(name).locator('.thumb img')
+      await expect(thumbnail).toHaveJSProperty('complete', true)
+      expect(await thumbnail.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0)
+
+      // The new name goes to the API as JSON, with the characters the edge has stopped before
+      const renamed = `${name} (omdøpt)`
+      await row(name).getByRole('button', { name: 'Gi nytt navn' }).click()
+      await page.getByRole('textbox', { name: 'Nytt navn' }).fill(renamed)
+      await page.getByRole('textbox', { name: 'Nytt navn' }).press('Enter')
+      await expect(page.getByRole('link', { name: renamed, exact: true })).toBeVisible()
+
+      await row(renamed).getByRole('button', { name: 'Kopier' }).click()
+      await page.getByRole('link', { name: `${renamed} (kopi)`, exact: true }).click()
+      await expect(page.locator('.project-name')).toHaveValue(`${renamed} (kopi)`)
+      ids.push(page.url().split('#/p/')[1]!)
+      expect(new Set(ids).size).toBe(2)
+    } finally {
+      for (const id of ids) await removeProject(page.request, id)
+    }
+  })
 })
