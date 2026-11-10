@@ -6,6 +6,8 @@ import { wallDir, wallLength, wallPieces, type Opening, type Room, type Wall } f
 import { useScenario, useStore } from '../store.ts'
 import { useFurnitureIssues } from '../hooks.ts'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
+import { distanceToFit } from './fitCamera.ts'
+import { floorSurface } from './floorMaterials.ts'
 import { Furniture3D } from './Furniture3D.tsx'
 import { Installations3D } from './Installations3D.tsx'
 import { Opening3D } from './Openings3D.tsx'
@@ -25,6 +27,7 @@ export function Viewer3D() {
   const [mode, setMode] = useState<CameraMode>('orbit')
   const [cutHeight, setCutHeight] = useState<number | null>(null)
   const [showLoadBearing, setShowLoadBearing] = useState(true)
+  const [roomColors, setRoomColors] = useState(false)
   const issues = useFurnitureIssues()
   const selectedId = useStore((s) => s.selection?.id)
   const dragging3d = useStore((s) => s.dragging3d)
@@ -80,7 +83,7 @@ export function Viewer3D() {
         }}
       >
         <color attach="background" args={['#e8edf3']} />
-        <hemisphereLight args={['#ffffff', '#b9a88f', 0.9]} />
+        <hemisphereLight args={['#ffffff', '#cfc6b8', 1.5]} />
         <directionalLight
           position={[bounds.cx + 8, 14, bounds.cy + 5]}
           intensity={1.6}
@@ -96,7 +99,7 @@ export function Viewer3D() {
           <meshStandardMaterial color="#d7dde5" />
         </mesh>
         {scenario.rooms.map((r) => (
-          <Floor key={r.id} room={r} />
+          <Floor key={r.id} room={r} byType={roomColors} />
         ))}
         <FloorPicker pickRef={pickRef} />
         {showInstallations && <Installations3D scenario={scenario} ceilingHeight={ceilingHeight} />}
@@ -149,6 +152,13 @@ export function Viewer3D() {
           Lave vegger
         </button>
         <button
+          className={roomColors ? 'active' : ''}
+          onClick={() => setRoomColors(!roomColors)}
+          title="Fargelegg gulvene etter romtype, som i 2D"
+        >
+          Romfarger
+        </button>
+        <button
           className={showLoadBearing ? 'active' : ''}
           onClick={() => setShowLoadBearing(!showLoadBearing)}
           title="Marker vegger merket som bærende"
@@ -170,13 +180,14 @@ export function Viewer3D() {
   )
 }
 
-function Floor({ room }: { room: Room }) {
+function Floor({ room, byType }: { room: Room; byType: boolean }) {
   const geom = useMemo(() => {
     if (room.polygon.length < 3) return null
     // Shape lives in XY; rotating -90° around X maps (x, -y) → (x, 0, y)
     const shape = new THREE.Shape(room.polygon.map((p) => new THREE.Vector2(p.x, -p.y)))
     return new THREE.ShapeGeometry(shape)
   }, [room.polygon])
+  const surface = useMemo(() => floorSurface(room), [room])
   const selected = useStore((s) => s.selection?.id === room.id)
   const select = useStore((s) => s.select)
   if (!geom) return null
@@ -191,7 +202,16 @@ function Floor({ room }: { room: Room }) {
         select({ kind: 'room', id: room.id })
       }}
     >
-      <meshStandardMaterial color={selected ? '#93c5fd' : ROOM_COLORS[room.type]} side={THREE.DoubleSide} />
+      {byType || selected ? (
+        // A tint on top of the boards turns muddy, so the selected floor is plain
+        <meshStandardMaterial
+          key="plain"
+          color={selected ? '#93c5fd' : ROOM_COLORS[room.type]}
+          side={THREE.DoubleSide}
+        />
+      ) : (
+        <meshStandardMaterial key="surface" map={surface.map} roughness={surface.roughness} side={THREE.DoubleSide} />
+      )}
     </mesh>
   )
 }
@@ -282,18 +302,43 @@ function Walk({ start, onExit }: { start: [number, number]; onExit(): void }) {
   return <PointerLockControls makeDefault onUnlock={onExit} />
 }
 
-/** Re-frames the camera when the model's extent changes noticeably (e.g. after digitizing). */
+/** Air around the model when the camera frames it. */
+const FIT_MARGIN = 1.12
+
+/** Where the camera looks from, relative to the middle of the plan. */
+const VIEW_DIRECTION = new THREE.Vector3(0.6, 0.9, 0.9)
+
+/**
+ * Frames the whole model when the 3D view opens and when the model's extent changes noticeably (e.g. after
+ * digitizing). A change in the shape of the view frames it again as long as the camera is where it was put.
+ */
 function FitCamera({ bounds }: { bounds: { cx: number; cy: number; size: number } }) {
-  const { camera } = useThree()
-  const lastRef = useRef<typeof bounds | null>(null)
+  const camera = useThree((s) => s.camera)
+  const aspect = useThree((s) => s.size.width / s.size.height)
+  const walls = useScenario()?.walls
+  const lastRef = useRef<{ bounds: typeof bounds; aspect: number; position: THREE.Vector3 } | null>(null)
   useEffect(() => {
     const l = lastRef.current
-    const changed = !l || Math.abs(l.size - bounds.size) > 1 || Math.hypot(l.cx - bounds.cx, l.cy - bounds.cy) > 1
-    if (!changed) return
-    lastRef.current = bounds
-    camera.position.set(bounds.cx + bounds.size * 0.6, bounds.size * 0.9, bounds.cy + bounds.size * 0.9)
-    camera.lookAt(bounds.cx, 0, bounds.cy)
-  }, [bounds, camera])
+    const moved =
+      !l ||
+      Math.abs(l.bounds.size - bounds.size) > 1 ||
+      Math.hypot(l.bounds.cx - bounds.cx, l.bounds.cy - bounds.cy) > 1
+    const reshaped = l && Math.abs(l.aspect - aspect) > 0.01 && camera.position.distanceTo(l.position) < 1e-3
+    if (!moved && !reshaped) return
+    const target = new THREE.Vector3(bounds.cx, 0, bounds.cy)
+    const box = new THREE.Box3()
+    for (const w of walls ?? []) {
+      box.expandByPoint(new THREE.Vector3(w.a.x, 0, w.a.y))
+      box.expandByPoint(new THREE.Vector3(w.b.x, w.height, w.b.y))
+    }
+    // Nothing drawn yet: frame the area the ground and the lights are set up for
+    if (box.isEmpty()) box.setFromCenterAndSize(target, new THREE.Vector3(bounds.size, 0, bounds.size))
+    const fov = camera instanceof THREE.PerspectiveCamera ? camera.fov : 50
+    const distance = distanceToFit(box, target, VIEW_DIRECTION, fov, aspect) * FIT_MARGIN
+    camera.position.copy(target).addScaledVector(VIEW_DIRECTION.clone().normalize(), distance)
+    camera.lookAt(target)
+    lastRef.current = { bounds, aspect, position: camera.position.clone() }
+  }, [bounds, aspect, walls, camera])
   return null
 }
 
