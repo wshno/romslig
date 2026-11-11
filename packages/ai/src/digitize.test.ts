@@ -37,9 +37,9 @@ const out = {
     { kind: 'door' as const, x1: 300, y1: 300, x2: 390, y2: 300 }, // in mid-air
   ],
   rooms: [
-    { name: 'Stue', type: 'stue' as const, stated_area_m2: 33, label_x: 300, label_y: 300 },
-    { name: 'Sov 1', type: 'soverom' as const, stated_area_m2: 13.2, label_x: 850, label_y: 200 },
-    { name: 'Sov 2', type: 'soverom' as const, stated_area_m2: 12.4, label_x: 850, label_y: 600 },
+    { name: 'Stue', type: 'stue' as const, stated_area_m2: 33, label_x: 300, label_y: 300, outline: null },
+    { name: 'Sov 1', type: 'soverom' as const, stated_area_m2: 13.2, label_x: 850, label_y: 200, outline: null },
+    { name: 'Sov 2', type: 'soverom' as const, stated_area_m2: 12.4, label_x: 850, label_y: 600, outline: null },
   ],
   dimensions: [{ x1: 60, y1: 795, x2: 1060, y2: 795, meters: 10 }],
   notes: '',
@@ -77,6 +77,30 @@ describe('toSuggestion', () => {
     expect(s.scaleSource).toBe('calibration')
     expect(s.rooms).toHaveLength(3)
     expect(s.walls[0]!.thickness).toBeCloseTo(0.25, 2)
+  })
+
+  it('takes the outline of a room that walls do not close in, like a balcony behind a railing', () => {
+    const balcony = {
+      name: 'Balkong',
+      type: 'balkong' as const,
+      stated_area_m2: null,
+      label_x: 500,
+      label_y: 860,
+      outline: [
+        { x: 72, y: 772 },
+        { x: 1048, y: 772 },
+        { x: 1048, y: 960 },
+        { x: 72, y: 960 },
+      ],
+    }
+    const noOutline = { ...balcony, name: 'Terrasse', outline: null }
+    const s = toSuggestion({ ...out, rooms: [...out.rooms, balcony, noOutline] }, project(true, 100), 1)
+    const b = s.rooms.find((r) => r.name === 'Balkong')!
+    expect(b.type).toBe('balkong')
+    expect(polygonArea(b.polygon)).toBeCloseTo(9.76 * 1.88, 1)
+    expect(s.rooms.map((r) => r.name).sort()).toEqual(['Balkong', 'Sov 1', 'Sov 2', 'Stue'])
+    // Without an outline it is still reported
+    expect(s.warnings).toEqual([expect.stringContaining('dør'), expect.stringContaining('«Terrasse»')])
   })
 
   it('falls back to stated room areas when there is no scale', () => {

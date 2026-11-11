@@ -47,6 +47,11 @@ const DigitizeOutput = z.object({
       stated_area_m2: z.number().nullable(),
       label_x: z.number(),
       label_y: z.number(),
+      /**
+       * The room's corners, only for a room that walls do not close in on every side (a balcony or
+       * terrace behind a railing, an open side). Null for a room inside walls.
+       */
+      outline: z.array(z.object({ x: z.number(), y: z.number() })).nullable(),
     }),
   ),
   dimensions: z.array(
@@ -75,6 +80,8 @@ Regler:
 - thickness_px: veggtykkelse i piksler slik den er tegnet. exterior=true for yttervegger.
 - Åpninger: x1,y1 og x2,y2 er åpningens to ender langs veggen (dørblad-bredde / vinduskarm). kind: door, window, eller opening (åpning uten dør).
 - Rom: ett per rom med romnavnet slik det står (f.eks. "Stue/kjøkken", "Sov 1", "Bad"), type fra listen, oppgitt areal i m² hvis det står (ellers null), og et punkt (label_x,label_y) som ligger inne i rommet.
+- outline: bare for rom som ikke er lukket av vegger på alle sider, f.eks. balkong eller terrasse avgrenset av rekkverk, eller et rom med en åpen side. Gi hjørnene i rekkefølge rundt rommet, langs innsiden av veggene og langs rekkverket. For rom som er lukket av vegger: null.
+- Rekkverk, glassfelt på balkong og lignende er ikke vegger. Ta dem ikke med som vegger, men bruk dem i outline for rommet de avgrenser.
 - Målsetting: hvis tegningen har målelinjer eller en målestokk, legg inn hver av dem med endepunktene og lengden i meter (mm → m). Hvis ingen, tom liste.
 - Ikke ta med møbler, sanitærutstyr, tekst eller skravur som vegger.
 - notes: kort på norsk om usikkerhet (f.eks. utydelige vegger, mulig bærevegg-markering).`
@@ -210,7 +217,13 @@ export function toSuggestion(out: DigitizeOutput, project: Project, f: number): 
     const p = toM(r.label_x, r.label_y)
     const idx = polys.findIndex((poly, i) => !used.has(i) && pointInPolygon(p, poly))
     if (idx < 0) {
-      warnings.push(`Fant ingen lukket vegg-sløyfe rundt «${r.name}». Sjekk at veggene henger sammen.`)
+      // Not closed in by walls (a balcony behind a railing): the outline Claude gave, if any
+      const outline = (r.outline ?? []).map((q) => toM(q.x, q.y))
+      if (outline.length >= 3 && polygonArea(outline) > 0.5) {
+        rooms.push({ id: newId('r_'), name: r.name, type: r.type, polygon: outline, statedArea: r.stated_area_m2 })
+      } else {
+        warnings.push(`Fant ingen lukket vegg-sløyfe rundt «${r.name}». Sjekk at veggene henger sammen.`)
+      }
       continue
     }
     used.add(idx)
