@@ -77,6 +77,24 @@ jobs:
       contents: read
     uses: hwinther/reusable-workflows/.github/workflows/gitversion.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
 
+  # Unit tests and coverage for builds of main, so quality (below) covers the whole repo. Same
+  # inputs as ci.yml, which runs them on pull requests; on push pr-build tests every stack rather
+  # than diffing against main.
+  unit:
+    if: ${{ github.event_name == 'push' }}
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+      packages: read
+    uses: hwinther/reusable-workflows/.github/workflows/pr-build.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      node_enabled: true
+      node_version: '26.x'
+      node_working_directory: '.'
+      # The default (derived from the working directory) would be ^./, which matches nothing.
+      node_changes_regex: "^(apps|packages)/|^(package\\.json|package-lock\\.json|tsconfig\\.base\\.json|eslint\\.config\\.js|vitest\\.config\\.ts)$"
+
   # Both app Dockerfiles build from the repo root: npm ci needs the root lock file and every workspace.
   api:
     needs: [version]
@@ -331,3 +349,21 @@ jobs:
               or the PR closes. No database, no AI key (byok).
 
             Closing the PR removes the env via `pr-preview-cleanup.yml`.
+
+  # The run's test, coverage and scan results (every quality-* artifact: unit, e2e and the two scans)
+  # as the signed OCI artifact ghcr.io/wshno/romslig/quality:main-<sha7> plus the moving :main, and
+  # as the workflow artifact quality-summary that wshno/devops' repository report reads. Also runs
+  # when a test job failed, so the failures are reported.
+  quality:
+    needs: [main-tag, version, unit, e2e, api-scan, web-scan]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: hwinther/reusable-workflows/.github/workflows/quality-artifact.yml@6b6810e17143f38ac9dc0f84d504e7ff08b1d2bf # v2.26.0
+    with:
+      tags: |
+        ${{ needs.main-tag.outputs.tag }}
+        main
+      version: ${{ needs.version.outputs.version }}
