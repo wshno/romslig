@@ -11,20 +11,6 @@ import { authFile } from './tests/auth-paths'
 const remote = Boolean(process.env.BASE_URL)
 const baseURL = process.env.BASE_URL ?? 'http://localhost:5173'
 
-// The web bundle holds apps/web/src and the workspace packages it imports (packages/*/src). Vite's
-// source maps name them relative to dist/assets, which monocart resolves against the page's origin
-// (`localhost-5173/src/...`, `localhost-5173/packages/shared/src/...`). Both become repo-relative
-// paths, the same as the unit tests' Cobertura, so the quality artifact can merge the two.
-const PACKAGE_SOURCE = /(?:^|\/)(packages\/[^/]+\/src\/.*)$/
-const WEB_SOURCE = /(?:^|\/)(?:apps\/web\/)?(src\/.*)$/
-function repoPath(sourcePath: string): string {
-  const path = sourcePath.replaceAll('\\', '/')
-  const pkg = PACKAGE_SOURCE.exec(path)
-  if (pkg?.[1]) return pkg[1]
-  const web = WEB_SOURCE.exec(path)
-  return web?.[1] ? `apps/web/${web[1]}` : path
-}
-
 // Shared defaults (testDir ./tests, forbidOnly, retries, the github/html/json CI reporters at the
 // paths the reusable reads, trace, screenshot and video on failure) come from @wshno/playwright-config.
 export default definePlaywrightConfig({
@@ -38,9 +24,15 @@ export default definePlaywrightConfig({
           name: 'Romslig E2E',
           coverage: {
             origin: baseURL,
-            sourcePath: repoPath,
-            sourceFilter: (sourcePath: string) =>
-              !sourcePath.includes('node_modules/') && /(?:^|\/)(?:packages\/[^/]+\/)?src\//.test(sourcePath),
+            // The bundle holds apps/web/src and the workspace packages it imports; both become
+            // repo-relative paths, the same as the unit tests' Cobertura. The same files are left out as
+            // in the unit coverage (vitest.config.ts), except App.tsx and viewer3d/, which only this
+            // suite covers.
+            layout: {
+              root: ['apps/web', 'packages/*'],
+              sourceDirs: ['src'],
+              exclude: /^apps\/web\/src\/(main\.tsx|vite-env\.d\.ts|theme\.ts|zod-config\.ts)$/,
+            },
           },
         }),
       ]
