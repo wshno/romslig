@@ -82,6 +82,7 @@ services:
     volumes:
       - ./e2e/playwright-report:/e2e/playwright-report
       - ./e2e/test-results:/e2e/test-results
+      - ./e2e/monocart-coverage:/e2e/monocart-coverage
     depends_on:
       auth-proxy:
         condition: service_healthy

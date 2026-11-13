@@ -13,7 +13,7 @@ export default defineConfig({
     },
     coverage: {
       provider: 'v8',
-      include: ['packages/*/src/**', 'apps/server/src/**'],
+      include: ['packages/*/src/**', 'apps/server/src/**', 'apps/web/src/**'],
       reporter: ['cobertura', 'lcov', 'html', 'json', 'text-summary'],
     },
   },
