@@ -1,4 +1,4 @@
-import { parseCsp } from '@wshno/playwright-config'
+import { expectAccessible, parseCsp } from '@wshno/playwright-config'
 
 import { expect, test } from './fixtures'
 
@@ -10,6 +10,13 @@ test('the project list loads, with the web and API versions in the footer', asyn
   await expect(footer).toContainText('web ')
   await expect(footer).toContainText(/api (dev|\d)/)
   await expect(footer).not.toContainText('ulik versjon')
+})
+
+// axe (WCAG 2.x A/AA) on the project list: fails on serious or critical violations.
+test('the project list is accessible', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Prosjekter' })).toBeVisible()
+  await expectAccessible(page)
 })
 
 test('the API answers health without a session, and everything else only behind auth', async ({ page }) => {
