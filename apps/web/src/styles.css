@@ -3,7 +3,7 @@
   --panel: #ffffff;
   --border: #e2e8f0;
   --text: #0f172a;
-  --muted: #64748b;
+  --muted: #5d6d84; /* 4.8:1 on the page background (WCAG AA); was #64748b, 4.3:1 */
   --accent: #2563eb;
   --accent-soft: #dbeafe;
   --danger: #dc2626;
