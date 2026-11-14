@@ -54,18 +54,26 @@ export interface MoveOpeningOptions {
    */
   snapStep?: number
   /**
-   * How close (m) the point has to come to another wall for the opening to go over to it. Omit
+   * How close (m) the pointer has to come to another wall for the opening to go over to it. Omit
    * (or 0) to keep the opening on its own wall.
    */
   switchDist?: number
+  /**
+   * Where on the opening it was grabbed: the pointer minus the opening's centre at drag start.
+   * Kept while the opening slides along its own wall, so it does not jump to centre itself under
+   * the pointer. Defaults to no offset.
+   */
+  grab?: Vec2
 }
 
 /**
- * The opening moved so its centre comes as close to `point` as it can.
+ * The opening moved by a drag with the pointer at `pointer`.
  *
- * - It stays on its wall, slid along it and kept inside it, unless the point is within
- *   `switchDist` of another wall and closer to that wall than to its own: then it goes over to
- *   that wall, centred on the point's projection on it.
+ * - On its own wall its centre goes as close to `pointer - grab` as it can: slid along the wall
+ *   and kept inside it.
+ * - When the pointer itself (not the grabbed centre, which can lag behind it by up to half the
+ *   opening) is within `switchDist` of another wall and closer to that wall than to the opening's
+ *   own, the opening goes over to that wall, centred on the pointer's projection on it.
  * - A wall shorter than the opening is never a target: the opening keeps its width rather than
  *   being made narrower without the user asking.
  * - Width, height and sill are kept. A door keeps its swing relative to where it came from: if it
@@ -73,10 +81,10 @@ export interface MoveOpeningOptions {
  *   place from the new wall, and the other way round. When that says nothing (the walls lie on one
  *   line) it keeps facing the same way in the plan.
  *
- * Pure, and it depends only on the scenario and the point: applied to the scenario from the start
+ * Pure, and it depends only on the scenario and the pointer: applied to the scenario from the start
  * of a drag, the result does not depend on the path the pointer took.
  */
-export function moveOpening(s: Scenario, openingId: string, point: Vec2, opts: MoveOpeningOptions = {}): Scenario {
+export function moveOpening(s: Scenario, openingId: string, pointer: Vec2, opts: MoveOpeningOptions = {}): Scenario {
   const o = s.openings.find((x) => x.id === openingId)
   const own = o && s.walls.find((w) => w.id === o.wallId)
   if (!o || !own) return s
@@ -84,13 +92,14 @@ export function moveOpening(s: Scenario, openingId: string, point: Vec2, opts: M
   let wall = own
   if (opts.switchDist) {
     const candidates = s.walls.filter((w) => w.id === own.id || wallLength(w) >= o.width - 1e-9)
-    const near = nearestWall(point, candidates, opts.switchDist)
+    const near = nearestWall(pointer, candidates, opts.switchDist)
     if (near) wall = near.wall
   }
 
   const L = wallLength(wall)
   const width = Math.min(o.width, L)
-  let offset = projectOntoWall(point, wall).offset
+  const centre = wall.id === own.id && opts.grab ? sub(pointer, opts.grab) : pointer
+  let offset = projectOntoWall(centre, wall).offset
   if (opts.snapStep) {
     // Round the gap to the nearer wall end, so the distance shown while dragging is a round number
     const fromA = offset - width / 2

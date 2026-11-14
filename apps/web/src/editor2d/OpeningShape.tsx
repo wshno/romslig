@@ -19,7 +19,7 @@ import { activeScenario, beginGesture, endGesture, useStore } from '../store.ts'
 import { fmtM } from '../theme.ts'
 import { OPENING_COLORS, SNAP_GRID } from './planStyle.ts'
 
-/** How close (screen px) the dragged opening's centre has to come to another wall to go over to it. */
+/** How close (screen px) the pointer has to come to another wall for a dragged opening to go over to it. */
 const SWITCH_WALL_PX = 20
 
 export function OpeningShape(props: {
@@ -35,7 +35,7 @@ export function OpeningShape(props: {
   const { o, wall, scale, selected } = props
   // The variant as it was when the drag started, and where on the opening it was grabbed
   const dragRef = useRef<{ base: Scenario; grab: Vec2 } | null>(null)
-  const pointer = (n: Konva.Node) => n.getLayer()?.getRelativePointerPosition() ?? null
+  const pointer = (n: Konva.Node) => n.getStage()?.getRelativePointerPosition() ?? null
 
   // Every move is applied to the variant from drag start, so the result does not depend on the path
   const onDragMove = (e: KonvaEventObject<DragEvent>) => {
@@ -43,7 +43,8 @@ export function OpeningShape(props: {
     const p = pointer(n)
     if (!dragRef.current || !p) return
     const { base, grab } = dragRef.current
-    const next = moveOpening(base, o.id, sub(p, grab), {
+    const next = moveOpening(base, o.id, p, {
+      grab,
       snapStep: e.evt.altKey ? undefined : SNAP_GRID,
       switchDist: SWITCH_WALL_PX / scale,
     })

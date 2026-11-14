@@ -182,6 +182,19 @@ describe('moveOpening', () => {
     expect(moved(onBottom, [0.1, 1.5]).wallId).toBe('bottom')
   })
 
+  it('keeps the grab offset along its own wall, and switches walls by where the pointer is', () => {
+    // Grabbed 0.4 m right of its centre: the centre stays 0.4 m left of the pointer
+    const grab = v(0.4, 0.02)
+    expect(moved(onBottom, [2.4, 0.05], { grab }).offset).toBeCloseTo(2)
+    expect(moved(onBottom, [1.9, 0], { grab }).offset).toBeCloseTo(1.5)
+    // The pointer on the right wall: over to it, although pointer - grab is 0.4 m from that wall
+    // (more than switchDist). This is the drag that failed in e2e when the centre was measured.
+    const o = moved(onBottom, [4, 1.5], { grab, switchDist: 0.3 })
+    expect(o.wallId).toBe('right')
+    // Centred on the pointer there: the grab offset belongs to the old wall's direction
+    expect(o.offset).toBeCloseTo(1.5)
+  })
+
   it('does not go over to a wall shorter than itself', () => {
     expect(moved(onBottom, [0.25, 5.05], { switchDist: 0.3 }).wallId).toBe('bottom')
     const narrow = door({ kind: 'window', wallId: 'bottom', width: 0.4, sill: 0.9, height: 1.2 })
