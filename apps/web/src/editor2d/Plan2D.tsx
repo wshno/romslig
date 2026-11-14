@@ -9,7 +9,9 @@ import {
   furnitureIssues,
   getCatalogItem,
   itemSize,
+  lerp,
   mul,
+  openingEndGap,
   RUN_INFO,
   sub,
   type Scenario,
@@ -84,7 +86,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   const selection = readOnly ? null : storeSelection
   const suggestion = readOnly ? null : storeSuggestion
   const interactive = !readOnly && tool === 'select'
-  const { select, updateOpening, setInstallationSettings } = useStore.getState()
+  const { select, setInstallationSettings } = useStore.getState()
 
   const img = useHtmlImage(
     project.planImage ? `${api.planUrl(project.id)}?v=${project.createdAt}-${project.planImage.file}` : null,
@@ -148,6 +150,12 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   const selectedWall = selection?.kind === 'wall' ? walls.find((w) => w.id === selection.id) : undefined
   /** How far the selected wall has been moved while its body is dragged. */
   const [wallMoved, setWallMoved] = useState<number | null>(null)
+  /** The opening being dragged, with the wall it lands on (highlighted) and its gap to the nearer end. */
+  const [draggedOpeningId, setDraggedOpeningId] = useState<string | null>(null)
+  const draggedOpening = draggedOpeningId ? scenario.openings.find((o) => o.id === draggedOpeningId) : undefined
+  const draggedOpeningWall = draggedOpening && walls.find((w) => w.id === draggedOpening.wallId)
+  const draggedOpeningGap =
+    draggedOpening && draggedOpeningWall ? openingEndGap(draggedOpening, draggedOpeningWall) : null
   const crosshair = tool !== 'select'
 
   return (
@@ -224,6 +232,16 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
             ))}
             {selectedWall && interactive && <WallBody wall={selectedWall} scenario={scenario} onMove={setWallMoved} />}
             {compareWith && <WallDiff current={scenario} other={compareWith} />}
+            {draggedOpeningWall && (
+              <Line
+                points={wallQuad(draggedOpeningWall, walls)}
+                closed
+                stroke="#2563eb"
+                strokeWidth={3}
+                strokeScaleEnabled={false}
+                listening={false}
+              />
+            )}
             {scenario.openings.map((o) => {
               const w = walls.find((x) => x.id === o.wallId)
               return w ? (
@@ -235,7 +253,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                   selected={selection?.id === o.id}
                   interactive={interactive}
                   onSelect={() => select({ kind: 'opening', id: o.id })}
-                  onMove={(offset) => updateOpening(o.id, { offset })}
+                  onDragging={(dragging) => setDraggedOpeningId(dragging ? o.id : null)}
                 />
               ) : null
             })}
@@ -270,6 +288,14 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
               />
             )}
             {suggestion && <SuggestionOverlay scale={scale} />}
+            {draggedOpeningWall && draggedOpeningGap && (
+              <Label
+                at={lerp(draggedOpeningWall[draggedOpeningGap.end], draggedOpeningGap.edge, 0.5)}
+                text={fmtM(draggedOpeningGap.gap)}
+                scale={scale}
+                color="#2563eb"
+              />
+            )}
 
             {/* Tool previews */}
             {tool === 'wall' && anchor && wallEnd && (

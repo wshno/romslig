@@ -169,7 +169,10 @@ function OpeningProps({ o }: { o: Opening }) {
           <span>Slår til motsatt side</span>
         </label>
       )}
-      <p className="muted">Tips: dra åpningen langs veggen i 2D.</p>
+      <p className="muted">
+        Tips: dra åpningen langs veggen i 2D, eller over til en annen vegg. Den festes til hele 10 cm fra nærmeste
+        veggende – hold Alt for å flytte fritt.
+      </p>
     </div>
   )
 }

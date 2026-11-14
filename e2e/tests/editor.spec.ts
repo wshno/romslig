@@ -6,7 +6,8 @@ interface SavedProject {
   calibration: { calibrated: boolean }
   scenarios: {
     name: string
-    walls: { a: { x: number; y: number }; b: { x: number; y: number } }[]
+    walls: { id: string; a: { x: number; y: number }; b: { x: number; y: number } }[]
+    openings: { wallId: string; offset: number }[]
     rooms: unknown[]
     furniture: unknown[]
   }[]
@@ -314,6 +315,65 @@ test.describe('editor', () => {
       expect(first!.b.x).toBeCloseTo((moved!.a.x + moved!.b.x) / 2, 6)
       expect(second!.a.x).toBeCloseTo(first!.b.x, 6)
       expect(second!.b.x).toBeCloseTo(moved!.b.x, 6)
+    } finally {
+      await removeProject(page.request, id)
+    }
+  })
+
+  test('drags a door along its wall and over to another wall, one undo step per drag', async ({ page }) => {
+    const id = await createProject(page, projectName('flytt-dor'))
+    try {
+      await page.getByRole('button', { name: '2D', exact: true }).click()
+      const click = await drawing(page)
+      const stage = (await page.locator('.plan2d .konvajs-content').boundingBox())!
+      const to = (dx: number, dy: number) =>
+        page.mouse.move(stage.x + stage.width / 2 + dx, stage.y + stage.height / 2 + dy, { steps: 8 })
+      const scenario = async () => (await stored(page, id)).scenarios[0]!
+      const door = async () => (await scenario()).openings[0]!
+
+      // An L: a wall to the right, then one down. Alt keeps the clicks exact.
+      await tool(page, 'Vegg').click()
+      await page.keyboard.down('Alt')
+      await click(-200, 0)
+      await click(200, 0)
+      await click(200, 200)
+      await page.keyboard.up('Alt')
+      await page.keyboard.press('Escape')
+      await expect.poll(async () => (await scenario()).walls.length).toBe(2)
+      const [top, side] = (await scenario()).walls
+
+      // A door on the top wall, a quarter of the way along
+      await tool(page, 'Dør').click()
+      await click(-100, 0)
+      await expect.poll(async () => (await scenario()).openings.length).toBe(1)
+      const placed = await door()
+      expect(placed.wallId).toBe(top!.id)
+
+      // Velg, select it and drag it along the wall to the middle
+      await tool(page, 'Velg').click()
+      await click(-100, 0)
+      await to(-100, 0)
+      await page.mouse.down()
+      await to(-50, 0)
+      await to(0, 0)
+      await page.mouse.up()
+      await expect.poll(async () => (await door()).offset).toBeGreaterThan(placed.offset + 0.1)
+      const along = await door()
+      expect(along.wallId).toBe(top!.id)
+
+      // Then down onto the other wall
+      await to(0, 0)
+      await page.mouse.down()
+      await to(100, 50)
+      await to(200, 100)
+      await page.mouse.up()
+      await expect.poll(async () => (await door()).wallId).toBe(side!.id)
+
+      // One undo takes the whole second drag back, to where the first one left it
+      await page.getByTitle('Angre (Ctrl+Z)').click()
+      await saved(page)
+      await expect.poll(async () => (await door()).wallId).toBe(top!.id)
+      expect((await door()).offset).toBeCloseTo(along.offset, 6)
     } finally {
       await removeProject(page.request, id)
     }
