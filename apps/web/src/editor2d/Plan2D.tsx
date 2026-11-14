@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Konva from 'konva'
-import { Circle, Image as KImage, Layer, Line, Rect, Stage } from 'react-konva'
+import { Circle, Image as KImage, Layer, Line, Stage } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { add, dist, furnitureIssues, mul, RUN_INFO, sub, type Scenario } from '@romslig/shared'
 import { api } from '../api.ts'
@@ -10,7 +10,7 @@ import { Installations2D } from './Installations2D.tsx'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
 import { fmtM } from '../theme.ts'
 import { OpeningShape } from './OpeningShape.tsx'
-import { Grid, Label } from './planShapes.tsx'
+import { Background, Grid, Label } from './planShapes.tsx'
 import { HINTS, SNAP_COLORS, wallFill, wallQuad } from './planStyle.ts'
 import { RoomEdgeLengths, RoomShape } from './RoomShape.tsx'
 import { SuggestionOverlay } from './SuggestionOverlay.tsx'
@@ -172,12 +172,9 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
           }}
         >
           <Layer>
-            <Rect name="bg" x={-200} y={-200} width={400 + imgW} height={400 + imgH} fill="#f8fafc" />
-            {img ? (
-              <KImage name="bg" image={img} width={imgW} height={imgH} opacity={imgOpacity} />
-            ) : (
-              <Grid w={imgW} h={imgH} />
-            )}
+            <Background fill="#f8fafc" />
+            <Grid />
+            {img && <KImage name="bg" image={img} width={imgW} height={imgH} opacity={imgOpacity} />}
           </Layer>
           <Layer>
             {scenario.rooms.map((r) => (
