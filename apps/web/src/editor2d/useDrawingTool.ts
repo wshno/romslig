@@ -5,6 +5,7 @@ import { add, dist, mul, nearestWall, norm, snapPoint, sub, type SnapKind, type 
 import { useStore, type Tool } from '../store.ts'
 import { fixturePlacement } from './installationUtils.ts'
 import type { PlanView } from './Plan2D.tsx'
+import { SNAP_GRID } from './planStyle.ts'
 
 export interface DrawingToolOptions {
   stageRef: RefObject<Konva.Stage | null>
@@ -34,7 +35,7 @@ export interface DrawingTool {
   wallEnd: Vec2 | null
   /** True while Shift is held (free angle / no snapping). */
   shiftRef: RefObject<boolean>
-  onMouseMove(): void
+  onMouseMove(e?: KonvaEventObject<MouseEvent>): void
   onClick(e: KonvaEventObject<MouseEvent>): void
   /** Finishes the current wall chain, room, ceiling or run. */
   endChain(): void
@@ -57,6 +58,8 @@ export function useDrawingTool({
   const [calPts, setCalPts] = useState<Vec2[]>([])
   const [typedLength, setTypedLength] = useState<string | null>(null)
   const shiftRef = useRef(false)
+  /** True while Alt is held (no grid snapping). */
+  const altRef = useRef(false)
   /** Our own double-click detection: same spot (screen px) within 350 ms. */
   const lastClickRef = useRef({ t: 0, x: 0, y: 0, double: false })
 
@@ -80,6 +83,7 @@ export function useDrawingTool({
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       shiftRef.current = e.shiftKey
+      altRef.current = e.altKey
       if (e.key === 'Escape') {
         setTypedLength(null)
         setAnchor(null)
@@ -87,7 +91,10 @@ export function useDrawingTool({
         setCalPts([])
       }
     }
-    const up = (e: KeyboardEvent) => (shiftRef.current = e.shiftKey)
+    const up = (e: KeyboardEvent) => {
+      shiftRef.current = e.shiftKey
+      altRef.current = e.altKey
+    }
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
     return () => {
@@ -102,14 +109,15 @@ export function useDrawingTool({
   const worldPointer = (): Vec2 | null => stageRef.current?.getRelativePointerPosition() ?? null
 
   const resolve = (p: Vec2): { p: Vec2; kind: SnapKind } => {
+    const grid = altRef.current ? undefined : SNAP_GRID
     if (tool === 'wall') {
-      const r = snapPoint(p, { walls, anchor, tolerance: tol, ortho: !shiftRef.current })
+      const r = snapPoint(p, { walls, anchor, tolerance: tol, ortho: !shiftRef.current, grid })
       return { p: r.point, kind: r.kind }
     }
     if (tool === 'room' || tool === 'ceiling' || tool === 'run') {
       if (tool !== 'run' && roomPts.length >= 3 && dist(p, roomPts[0]!) < tol)
         return { p: roomPts[0]!, kind: 'endpoint' }
-      const r = snapPoint(p, { walls, anchor: roomPts.at(-1), tolerance: tol, ortho: !shiftRef.current })
+      const r = snapPoint(p, { walls, anchor: roomPts.at(-1), tolerance: tol, ortho: !shiftRef.current, grid })
       return { p: r.point, kind: r.kind }
     }
     return { p, kind: 'none' }
@@ -155,13 +163,16 @@ export function useDrawingTool({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [tool, anchor, readOnly, typedLength, typedMeters, wallEnd, addWall])
 
-  const onMouseMove = () => {
+  const onMouseMove = (e?: KonvaEventObject<MouseEvent>) => {
+    // The pointer event knows Alt too, and is right even when its keyup was missed (Alt+Tab)
+    if (e) altRef.current = e.evt.altKey
     const p = worldPointer()
     if (p) setCursor(resolve(p))
   }
 
   const onClick = (e: KonvaEventObject<MouseEvent>) => {
     if (e.evt.button !== 0 || readOnly) return
+    altRef.current = e.evt.altKey
     const raw = worldPointer()
     if (!raw) return
     const now = performance.now()

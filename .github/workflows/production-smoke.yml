@@ -1,0 +1,122 @@
+name: Production smoke test
+
+# Every night, after nightly-preview.yml: one short e2e test against production itself
+# (https://romslig.wsh.no), signed in through Authelia as the shared e2e user. The nightly preview
+# runs the whole suite through the edge, but on a fresh env with a file store; only this goes through
+# the chain users hit: NAXSI → Authelia → Traefik → API → PostgreSQL. The test
+# (e2e/tests/production-smoke.spec.ts, tagged @production-smoke and run only here via
+# E2E_SUITE=production-smoke) creates a project with æøå, parentheses and an apostrophe in its name,
+# changes it, checks that the change comes back after a reload, and always deletes the project again.
+# A scheduled failure opens (or comments on) an issue labelled `production-smoke`; the next green
+# scheduled run closes it.
+#
+# Deploys nothing, so unlike the nightly it needs no GitOps App: only the `build` environment's
+# E2E_USERNAME, E2E_PASSWORD and E2E_OTP_SECRET. By hand: gh workflow run production-smoke.yml
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 02:15 UTC: after the nightly preview (01:30) has torn its env down.
+    - cron: '15 2 * * *'
+
+permissions: {}
+
+concurrency:
+  group: production-smoke
+  cancel-in-progress: false
+
+env:
+  BASE_URL: https://romslig.wsh.no
+
+jobs:
+  # The runner image ghcr.io/wshno/playwright-config:<version> for the version e2e/'s lock file
+  # resolves (the image has the matching browsers baked in), as the nightly's resolve job does.
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      e2e_image: ${{ steps.image.outputs.ref }}
+      base_url: ${{ steps.image.outputs.base_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Runner image from the lock file
+        id: image
+        run: |
+          set -euo pipefail
+          v=$(jq -r '.packages["node_modules/@wshno/playwright-config"].version // empty' e2e/package-lock.json)
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::No @wshno/playwright-config version in e2e/package-lock.json"; exit 1; }
+          echo "ref=ghcr.io/wshno/playwright-config:$v" >> "$GITHUB_OUTPUT"
+          # Reusable-workflow inputs cannot read the env context, so it goes through an output.
+          echo "base_url=$BASE_URL" >> "$GITHUB_OUTPUT"
+
+  smoke:
+    needs: [resolve]
+    # What playwright-e2e.yml's job asks for: packages to pull the runner image, actions and
+    # pull-requests for its artifact and PR-comment steps (no PR here, and the comment is off).
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      pull-requests: write
+    uses: hwinther/reusable-workflows/.github/workflows/playwright-e2e.yml@aadc90a4c71886ade7ae0418d9fdca5a94c4197e # v2.34.0
+    with:
+      base_url: ${{ needs.resolve.outputs.base_url }}
+      wait_url: ${{ needs.resolve.outputs.base_url }}/api/health
+      wait_timeout_seconds: 300
+      container_image: ${{ needs.resolve.outputs.e2e_image }}
+      playwright_working_directory: e2e
+      environment: build
+      node_modules_cache_enabled: true
+      pr_comment_enabled: false
+      # Selects the @production-smoke spec and nothing else (e2e/playwright.config.ts).
+      playwright_env: |
+        E2E_SUITE=production-smoke
+    secrets:
+      e2e_username: ${{ secrets.E2E_USERNAME }}
+      e2e_password: ${{ secrets.E2E_PASSWORD }}
+      e2e_otp_secret: ${{ secrets.E2E_OTP_SECRET }}
+
+  # One open issue while the scheduled smoke test is red: opened on the first failure, commented on
+  # after that, closed by the next green scheduled run. Manual runs leave it alone.
+  report:
+    needs: [resolve, smoke]
+    if: ${{ always() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LABEL: production-smoke
+          RESULTS: ${{ needs.resolve.result }} ${{ needs.smoke.result }}
+          SMOKE: ${{ needs.smoke.result }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create "$LABEL" --color D93F0B \
+            --description "The production smoke test is failing" 2>/dev/null || true
+          open="$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')"
+          if [ "$SMOKE" = success ]; then
+            if [ -n "$open" ]; then
+              gh issue close "$open" --comment "Green again: $RUN_URL"
+            fi
+            exit 0
+          fi
+          body="The production smoke test against $BASE_URL failed (job results: $RESULTS; test code from \`$SHA\`).
+
+          Run: $RUN_URL"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+          else
+            gh issue create --title "Production smoke test is failing" --label "$LABEL" --body "$body"
+          fi

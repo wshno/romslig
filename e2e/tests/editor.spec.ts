@@ -69,13 +69,16 @@ test.describe('editor', () => {
       await page.getByRole('button', { name: '2D', exact: true }).click()
       const click = await drawing(page)
 
-      // Four walls, 300 × 200 px, closed by clicking the first corner again
+      // Four walls, 300 × 200 px, closed by clicking the first corner again. Alt keeps the corners
+      // off the 10 cm grid, so the top wall is exactly as long as the calibration line below.
       await tool(page, 'Vegg').click()
+      await page.keyboard.down('Alt')
       await click(-150, -100)
       await click(150, -100)
       await click(150, 100)
       await click(-150, 100)
       await click(-150, -100)
+      await page.keyboard.up('Alt')
       await page.keyboard.press('Escape')
 
       await page.getByRole('button', { name: 'Finn rom automatisk' }).click()
@@ -193,10 +196,13 @@ test.describe('editor', () => {
       const tabs = page.locator('.inspector .tabs')
       const wallPanel = page.getByRole('spinbutton', { name: 'Lengde' })
 
-      // One wall; Escape ends it and goes back to Velg
+      // One wall, drawn with Alt (no grid snap) so it lies exactly where the clicks below select
+      // it; Escape ends it and goes back to Velg
       await tool(page, 'Vegg').click()
+      await page.keyboard.down('Alt')
       await click(-150, 0)
       await click(150, 0)
+      await page.keyboard.up('Alt')
       await page.keyboard.press('Escape')
       await expect(tool(page, 'Velg')).toHaveClass(/active/)
 
@@ -218,6 +224,40 @@ test.describe('editor', () => {
       await expect(wallPanel).toHaveCount(0)
       await expect(page.getByPlaceholder('Søk…')).toBeVisible()
       await expect(tabs.getByRole('button', { name: 'Møbler', exact: true })).toHaveClass(/active/)
+    } finally {
+      await removeProject(page.request, id)
+    }
+  })
+
+  test('snaps wall corners to the 10 cm grid, and Alt turns that off', async ({ page }) => {
+    const id = await createProject(page, projectName('rutenett'))
+    try {
+      await page.getByRole('button', { name: '2D', exact: true }).click()
+      const click = await drawing(page)
+      const walls = async () => (await stored(page, id)).scenarios[0]!.walls
+      const onGrid = (n: number) => Math.abs(n * 10 - Math.round(n * 10)) < 1e-6
+
+      await tool(page, 'Vegg').click()
+      await click(-123, -47)
+      await click(131, -45)
+      await page.keyboard.press('Escape')
+      await saved(page)
+      await expect.poll(async () => (await walls()).length).toBe(1)
+      const [w] = await walls()
+      expect([w!.a.x, w!.a.y, w!.b.x, w!.b.y].every(onGrid)).toBe(true)
+
+      // With Alt held the corner lands where the pointer is, which is off the grid here. Escape
+      // also left the wall tool, so pick it again.
+      await tool(page, 'Vegg').click()
+      await page.keyboard.down('Alt')
+      await click(-117, 63)
+      await click(-117, 151)
+      await page.keyboard.up('Alt')
+      await page.keyboard.press('Escape')
+      await saved(page)
+      await expect.poll(async () => (await walls()).length).toBe(2)
+      const free = (await walls())[1]!
+      expect([free.a.x, free.a.y, free.b.x, free.b.y].every(onGrid)).toBe(false)
     } finally {
       await removeProject(page.request, id)
     }

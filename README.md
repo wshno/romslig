@@ -49,6 +49,7 @@ Snarveier: Ctrl+Z / Ctrl+Y, Delete, Esc, Shift = fri vinkel ved tegning, dobbelt
 - To images bygges fra repo-roten: `apps/server/Dockerfile` (API på distroless Node) og `apps/web/Dockerfile` (SPA på `ghcr.io/wshno/static-server/server`). Begge lytter på 8080.
 - `deploy/` har Kubernetes-manifestene (Deployment, Service og HTTPRoute med Authelia forward auth). Variablene, hemmelighetene og hvordan de leveres til klyngen, står i [deploy/README.md](deploy/README.md).
 - `.github/workflows/`: `ci.yml` kjører typesjekk, bygg, lint og tester på pull requests. «Create release» lager en versjonstag, og `container.yml` bygger og signerer imagene og manifest-artefaktet `ghcr.io/wshno/romslig/manifests`.
+- Nattlige ende-til-ende-tester: `nightly-preview.yml` (01:30 UTC) deployer `main` til et midlertidig preview-miljø og kjører hele e2e-suiten mot det gjennom NAXSI og Authelia. `production-smoke.yml` (02:15 UTC) kjører én kort test mot produksjon (https://romslig.wsh.no) som e2e-brukeren: lager et prosjekt med æøå i navnet, endrer takhøyden, sjekker at endringen er lagret i PostgreSQL og sletter prosjektet igjen. Testen er merket `@production-smoke` og kjøres bare når `E2E_SUITE=production-smoke`. Feiler en planlagt kjøring, åpnes en issue med etiketten `nightly-preview` eller `production-smoke`. Manuelt: `gh workflow run production-smoke.yml`.
 - Lokal ende-til-ende-stack med postgres, api, web og en nginx som etterligner Authelia: `docker compose -f docker-compose.e2e.yml up --build`, deretter http://localhost:5173 (innlogget som `e2e-user`).
 
 ## Veikart
