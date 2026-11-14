@@ -29,6 +29,7 @@ const TOOLS: { id: Tool; label: string; icon: string; key: string }[] = [
   { id: 'opening', label: 'Åpning', icon: '⬚', key: 'o' },
   { id: 'room', label: 'Rom', icon: '⬠', key: 'r' },
   { id: 'calibrate', label: 'Kalibrer', icon: '📏', key: 'k' },
+  { id: 'measure', label: 'Måle', icon: '📐', key: 'm' },
   { id: 'fixture', label: 'Punkt', icon: '🔌', key: 'p' },
   { id: 'run', label: 'Føring', icon: '〰', key: 'f' },
   { id: 'ceiling', label: 'Himling', icon: '▥', key: 'h' },

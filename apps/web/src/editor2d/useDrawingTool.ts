@@ -4,6 +4,7 @@ import type { KonvaEventObject } from 'konva/lib/Node'
 import { add, dist, mul, nearestWall, norm, snapPoint, sub, type SnapKind, type Vec2, type Wall } from '@romslig/shared'
 import { useStore, type Tool } from '../store.ts'
 import { fixturePlacement } from './installationUtils.ts'
+import type { Measurement } from './measure.ts'
 import type { PlanView } from './Plan2D.tsx'
 import { SNAP_GRID } from './planStyle.ts'
 
@@ -29,6 +30,8 @@ export interface DrawingTool {
   roomPts: Vec2[]
   /** Calibration points picked so far. */
   calPts: Vec2[]
+  /** The measuring tool's measurement: temporary, never stored in the project. */
+  measurement: Measurement | null
   /** What has been typed as the length of the wall being drawn (e.g. "3,2"), or null. */
   typedLength: string | null
   /** Where the wall being drawn ends: the typed length toward the pointer, else the pointer. */
@@ -56,6 +59,7 @@ export function useDrawingTool({
   const [anchor, setAnchor] = useState<Vec2 | null>(null)
   const [roomPts, setRoomPts] = useState<Vec2[]>([])
   const [calPts, setCalPts] = useState<Vec2[]>([])
+  const [measurement, setMeasurement] = useState<Measurement | null>(null)
   const [typedLength, setTypedLength] = useState<string | null>(null)
   const shiftRef = useRef(false)
   /** True while Alt is held (no grid snapping). */
@@ -71,10 +75,12 @@ export function useDrawingTool({
     setAnchor(null)
     setRoomPts([])
     setCalPts([])
+    setMeasurement(null)
   }
 
-  // The editor's Escape shortcut needs to know whether something is being drawn
-  const inProgress = anchor !== null || roomPts.length > 0 || calPts.length > 0
+  // The editor's Escape shortcut needs to know whether something is being drawn. A measurement
+  // counts too, also a finished one, so Escape clears it like it ends a wall.
+  const inProgress = anchor !== null || roomPts.length > 0 || calPts.length > 0 || measurement !== null
   useEffect(() => {
     useStore.getState().setDrawing(inProgress)
   }, [inProgress])
@@ -89,6 +95,7 @@ export function useDrawingTool({
         setAnchor(null)
         setRoomPts([])
         setCalPts([])
+        setMeasurement(null)
       }
     }
     const up = (e: KeyboardEvent) => {
@@ -118,6 +125,12 @@ export function useDrawingTool({
       if (tool !== 'run' && roomPts.length >= 3 && dist(p, roomPts[0]!) < tol)
         return { p: roomPts[0]!, kind: 'endpoint' }
       const r = snapPoint(p, { walls, anchor: roomPts.at(-1), tolerance: tol, ortho: !shiftRef.current, grid })
+      return { p: r.point, kind: r.kind }
+    }
+    if (tool === 'measure') {
+      // Like the wall tool, with 45° steps from the first point while the second is picked
+      const from = measurement && !measurement.b ? measurement.a : undefined
+      const r = snapPoint(p, { walls, anchor: from, tolerance: tol, ortho: !shiftRef.current, grid })
       return { p: r.point, kind: r.kind }
     }
     return { p, kind: 'none' }
@@ -224,6 +237,11 @@ export function useDrawingTool({
         useStore.getState().addFixture(fixtureKind, placed.point, placed.wallId)
         break
       }
+      case 'measure':
+        // A click after a finished measurement starts a new one
+        if (!measurement || measurement.b) setMeasurement({ a: p, b: null })
+        else if (dist(measurement.a, p) > 1e-6) setMeasurement({ a: measurement.a, b: p })
+        break
       case 'calibrate': {
         const pts = [...calPts, raw]
         if (pts.length < 2) return setCalPts(pts)
@@ -256,6 +274,7 @@ export function useDrawingTool({
     anchor,
     roomPts,
     calPts,
+    measurement,
     typedLength,
     wallEnd,
     shiftRef,

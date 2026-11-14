@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import { createProject, expect, projectName, removeProject, saved, test } from './fixtures'
 
 interface SavedProject {
+  version: number
   calibration: { calibrated: boolean }
   scenarios: {
     name: string
@@ -259,6 +260,52 @@ test.describe('editor', () => {
       await expect.poll(async () => (await walls()).length).toBe(2)
       const free = (await walls())[1]!
       expect([free.a.x, free.a.y, free.b.x, free.b.y].every(onGrid)).toBe(false)
+    } finally {
+      await removeProject(page.request, id)
+    }
+  })
+
+  test('measures a distance without changing the project, and Escape clears the measurement', async ({ page }) => {
+    const id = await createProject(page, projectName('måling'))
+    try {
+      await page.getByRole('button', { name: '2D', exact: true }).click()
+      const click = await drawing(page)
+      const readout = page.locator('.plan2d .measure-readout')
+
+      // A wall to measure along; its corners snap to the grid like the measuring tool's points
+      await tool(page, 'Vegg').click()
+      await click(-150, 0)
+      await click(150, 0)
+      await page.keyboard.press('Escape')
+      await saved(page)
+      await expect.poll(async () => (await stored(page, id)).scenarios[0]!.walls.length).toBe(1)
+      const before = await stored(page, id)
+      const { a, b } = before.scenarios[0]!.walls[0]!
+      const length = `${Math.hypot(b.x - a.x, b.y - a.y)
+        .toFixed(2)
+        .replace('.', ',')} m`
+
+      // The same two clicks with the measuring tool land on the wall's ends
+      await page.keyboard.press('m')
+      await expect(tool(page, 'Måle')).toHaveClass(/active/)
+      await click(-150, 0)
+      await click(150, 0)
+      await expect(readout).toHaveText(`Avstand: ${length}`)
+      // The next click starts a new measurement: nothing to show while the pointer is still on its
+      // first point, and the click after that fixes it
+      await click(-150, 0)
+      await expect(readout).toHaveCount(0)
+      await click(150, 0)
+      await expect(readout).toHaveText(`Avstand: ${length}`)
+
+      // Escape clears it and goes back to Velg, as it ends a wall
+      await page.keyboard.press('Escape')
+      await expect(readout).toHaveCount(0)
+      await expect(tool(page, 'Velg')).toHaveClass(/active/)
+
+      // Measuring is not a change to the project: nothing was saved
+      await expect(page.getByText('Lagret', { exact: true })).toBeVisible()
+      expect((await stored(page, id)).version).toBe(before.version)
     } finally {
       await removeProject(page.request, id)
     }

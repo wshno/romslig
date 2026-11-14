@@ -11,6 +11,7 @@ import {
   itemSize,
   lerp,
   mul,
+  norm,
   openingEndGap,
   RUN_INFO,
   sub,
@@ -23,7 +24,8 @@ import { Installations2D } from './Installations2D.tsx'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
 import { fmtM } from '../theme.ts'
 import { OpeningShape } from './OpeningShape.tsx'
-import { Background, Grid, Label } from './planShapes.tsx'
+import { distanceText, measureDetails } from './measure.ts'
+import { Background, Grid, Label, PlateText } from './planShapes.tsx'
 import { usePlanImagePrefs } from './planImagePrefs.ts'
 import { HINTS, SNAP_COLORS, wallFill, wallQuad } from './planStyle.ts'
 import { RoomEdgeLengths, RoomLabel, RoomShape } from './RoomShape.tsx'
@@ -33,6 +35,8 @@ import { WallDiff } from './WallDiff.tsx'
 import { WallBody, WallHandles } from './WallHandles.tsx'
 
 Konva.dragButtons = [0, 1]
+
+const MEASURE_COLOR = '#c026d3'
 
 function useHtmlImage(src: string | null) {
   const [loaded, setLoaded] = useState<{ src: string; img: HTMLImageElement } | null>(null)
@@ -125,16 +129,31 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   const px = (n: number) => n / scale // screen pixels → meters
   const walls = scenario.walls
 
-  const { cursor, setCursor, anchor, roomPts, calPts, typedLength, wallEnd, shiftRef, onMouseMove, onClick, endChain } =
-    useDrawingTool({
-      stageRef,
-      tool,
-      readOnly,
-      walls,
-      scale,
-      ppm,
-      setManualView,
-    })
+  const {
+    cursor,
+    setCursor,
+    anchor,
+    roomPts,
+    calPts,
+    measurement,
+    typedLength,
+    wallEnd,
+    shiftRef,
+    onMouseMove,
+    onClick,
+    endChain,
+  } = useDrawingTool({
+    stageRef,
+    tool,
+    readOnly,
+    walls,
+    scale,
+    ppm,
+    setManualView,
+  })
+  // The measured line: to the pointer until the second point is clicked
+  const measureEnd = tool === 'measure' && measurement ? (measurement.b ?? cursor?.p ?? null) : null
+  const measured = measurement && measureEnd && dist(measurement.a, measureEnd) > 1e-6 ? measureEnd : null
 
   const onWheel = (e: KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault()
@@ -331,6 +350,48 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                 strokeScaleEnabled={false}
               />
             )}
+            {measurement && measured && (
+              <Group listening={false}>
+                <Line
+                  points={[measurement.a.x, measurement.a.y, measured.x, measured.y]}
+                  stroke={MEASURE_COLOR}
+                  strokeWidth={2}
+                  dash={[6, 4]}
+                  strokeScaleEnabled={false}
+                />
+                {/* End ticks across the line */}
+                {(['a', 'b'] as const).map((end) => {
+                  const p = end === 'a' ? measurement.a : measured
+                  const d = norm(sub(measured, measurement.a))
+                  const t = mul({ x: -d.y, y: d.x }, px(7))
+                  return (
+                    <Line
+                      key={end}
+                      points={[p.x - t.x, p.y - t.y, p.x + t.x, p.y + t.y]}
+                      stroke={MEASURE_COLOR}
+                      strokeWidth={2}
+                      strokeScaleEnabled={false}
+                    />
+                  )
+                })}
+                <Label
+                  at={add(measurement.a, mul(sub(measured, measurement.a), 0.5))}
+                  text={fmtM(dist(measurement.a, measured))}
+                  scale={scale}
+                  color={MEASURE_COLOR}
+                />
+                {measurement.b && measureDetails(measurement.a, measured) && (
+                  <PlateText
+                    at={add(measurement.a, mul(sub(measured, measurement.a), 0.5))}
+                    text={measureDetails(measurement.a, measured)}
+                    scale={scale}
+                    fontSize={11}
+                    color="#475569"
+                    dy={10}
+                  />
+                )}
+              </Group>
+            )}
             {crosshair && cursor && (
               <Circle x={cursor.p.x} y={cursor.p.y} radius={px(5)} fill={SNAP_COLORS[cursor.kind]} listening={false} />
             )}
@@ -379,6 +440,14 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
           ⤢
         </button>
         {title && <span className="plan-title">{title}</span>}
+        {measurement && measured && (
+          <span className="measure-readout" role="status">
+            {distanceText(measurement.a, measured)}
+            {measurement.b && measureDetails(measurement.a, measured) && (
+              <span className="muted"> ({measureDetails(measurement.a, measured)})</span>
+            )}
+          </span>
+        )}
         {!readOnly && <span className="hint">{HINTS[tool]}</span>}
       </div>
     </div>

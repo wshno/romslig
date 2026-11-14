@@ -45,7 +45,7 @@ import {
 } from '@romslig/shared'
 
 export type Tool =
-  'select' | 'wall' | 'door' | 'window' | 'opening' | 'room' | 'calibrate' | 'fixture' | 'run' | 'ceiling'
+  'select' | 'wall' | 'door' | 'window' | 'opening' | 'room' | 'calibrate' | 'measure' | 'fixture' | 'run' | 'ceiling'
 export type ViewMode = '2d' | '3d' | 'split' | 'compare'
 export type InspectorTab = 'oversikt' | 'moebler' | 'assistent'
 export type Selection = {
