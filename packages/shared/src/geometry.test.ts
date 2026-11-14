@@ -7,6 +7,7 @@ import {
   polygonArea,
   polygonCentroid,
   snapPoint,
+  snapToStep,
   wallPieces,
   v,
 } from './geometry.ts'
@@ -114,6 +115,39 @@ describe('snapPoint', () => {
     const r = snapPoint(v(2.02, 0.06), { walls, anchor: v(2, 2), tolerance: 0.1, ortho: true })
     expect(r.kind).toBe('wall')
     expect(r.point.y).toBeCloseTo(0)
+  })
+  it('snaps to the grid when nothing stronger applies', () => {
+    const r = snapPoint(v(1.234, 2.071), { walls, tolerance: 0.1, grid: 0.1 })
+    expect(r.kind).toBe('grid')
+    expect(r.point).toEqual(v(1.2, 2.1))
+  })
+  it('leaves the point alone without a grid', () => {
+    expect(snapPoint(v(1.234, 2.071), { walls, tolerance: 0.1 })).toEqual({ point: v(1.234, 2.071), kind: 'none' })
+  })
+  it('prefers endpoints and walls over the grid', () => {
+    expect(snapPoint(v(3.97, 0.03), { walls, tolerance: 0.1, grid: 0.1 })).toEqual({ point: v(4, 0), kind: 'endpoint' })
+    const r = snapPoint(v(1.234, 0.05), { walls, tolerance: 0.1, grid: 0.1 })
+    expect(r.kind).toBe('wall')
+    expect(r.point.x).toBeCloseTo(1.234)
+  })
+  it('rounds the distance along the angle ray to the grid', () => {
+    const anchor = v(0.03, 1)
+    const r = snapPoint(v(2.27, 1.04), { walls, anchor, tolerance: 0.1, ortho: true, grid: 0.1 })
+    expect(r.kind).toBe('angle')
+    expect(r.point.y).toBeCloseTo(1)
+    expect(r.point.x - anchor.x).toBeCloseTo(2.2)
+    // On a 45° ray the point stays on the ray, at a length that is a multiple of the grid
+    const d = snapPoint(v(1.53, 2.47), { walls, anchor: v(0, 1), tolerance: 0.1, ortho: true, grid: 0.1 })
+    expect(d.point.x).toBeCloseTo(d.point.y - 1)
+    expect(Math.hypot(d.point.x, d.point.y - 1)).toBeCloseTo(2.1)
+  })
+})
+
+describe('snapToStep', () => {
+  it('rounds to the step without float noise', () => {
+    expect(String(snapToStep(0.29999, 0.1))).toBe('0.3')
+    expect(String(snapToStep(-1.26, 0.1))).toBe('-1.3')
+    expect(snapToStep(7.4, 5)).toBe(5)
   })
 })
 

@@ -94,12 +94,31 @@ export function lineIntersection(p: Vec2, r: Vec2, q: Vec2, s: Vec2): { t: numbe
 // Snapping
 // ---------------------------------------------------------------------------
 
-export type SnapKind = 'endpoint' | 'wall' | 'angle' | 'none'
+export type SnapKind = 'endpoint' | 'wall' | 'angle' | 'grid' | 'none'
 
+/** Rounds to the nearest multiple of `step`, without float noise such as 0.30000000000000004. */
+export function snapToStep(x: number, step: number): number {
+  return Math.round(Math.round(x / step) * step * 1e9) / 1e9
+}
+
+/**
+ * Snaps a pointer position, strongest first: wall endpoints, 45° angles from the anchor (preferring
+ * where that ray meets a wall), the nearest point on a wall, and last the grid. With `grid` (a
+ * spacing in meters) a point that nothing else caught goes to the nearest grid point, and on the
+ * angle ray the distance from the anchor is rounded to the spacing so the point stays on the ray.
+ */
 export function snapPoint(
   p: Vec2,
-  opts: { walls: Wall[]; anchor?: Vec2 | null; tolerance: number; ortho?: boolean; excludeWallId?: string },
+  opts: {
+    walls: Wall[]
+    anchor?: Vec2 | null
+    tolerance: number
+    ortho?: boolean
+    excludeWallId?: string
+    grid?: number
+  },
 ): { point: Vec2; kind: SnapKind } {
+  const grid = opts.grid && opts.grid > 0 ? opts.grid : null
   const walls = opts.walls.filter((w) => w.id !== opts.excludeWallId)
   // 1. Endpoints
   let best: { point: Vec2; d: number } | null = null
@@ -130,6 +149,10 @@ export function snapPoint(
         if (dd < opts.tolerance && (!hit || dd < hit.d)) hit = { point: pt, d: dd }
       }
       if (hit) return { point: hit.point, kind: 'wall' }
+      if (grid) {
+        const t = snapToStep(dot(d, dir), grid)
+        return { point: add(opts.anchor, mul(dir, t)), kind: 'angle' }
+      }
       return { point: q, kind: 'angle' }
     }
   }
@@ -141,6 +164,7 @@ export function snapPoint(
     if (c.dist < opts.tolerance && (!seg || c.dist < seg.d)) seg = { point: c.point, d: c.dist }
   }
   if (seg) return { point: seg.point, kind: 'wall' }
+  if (grid) return { point: v(snapToStep(p.x, grid), snapToStep(p.y, grid)), kind: 'grid' }
   return { point: p, kind: 'none' }
 }
 

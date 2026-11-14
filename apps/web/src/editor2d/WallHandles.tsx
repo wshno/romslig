@@ -14,6 +14,7 @@ import {
 import { beginGesture, endGesture, useStore } from '../store.ts'
 import { fmtM } from '../theme.ts'
 import { Label } from './planShapes.tsx'
+import { SNAP_GRID } from './planStyle.ts'
 
 export function WallHandles({
   wall,
@@ -51,7 +52,13 @@ export function WallHandles({
         if (!drag) return
         const r = snapPoint(
           { x: e.target.x(), y: e.target.y() },
-          { walls: drag.still, anchor: end === 'a' ? wall.b : wall.a, tolerance: 12 / scale, ortho: !shiftRef.current },
+          {
+            walls: drag.still,
+            anchor: end === 'a' ? wall.b : wall.a,
+            tolerance: 12 / scale,
+            ortho: !shiftRef.current,
+            grid: e.evt.altKey ? undefined : SNAP_GRID,
+          },
         )
         e.target.position(r.point)
         useStore.getState().dragWallEndpoint(drag.base, wall.id, end, r.point)
