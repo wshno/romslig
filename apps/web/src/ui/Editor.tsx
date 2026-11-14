@@ -59,7 +59,7 @@ export function Editor({ projectId }: { projectId: string }) {
   const project = useStore((s) => s.project)
   const [error, setError] = useState<string | null>(null)
   const [save, setSave] = useState<SaveStatus>({ state: 'saved' })
-  const inspectorWide = useStore((s) => s.inspectorTab === 'assistent' && !s.selection)
+  const inspectorWide = useStore((s) => s.inspectorTab === 'assistent' && !s.selection.length)
   const focus = useStore((s) => s.focus)
   const keyDialogOpen = useAi((s) => s.keyDialogOpen)
   const typing = useTypingAsOneUndoStep()
@@ -169,12 +169,11 @@ export function Editor({ projectId }: { projectId: string }) {
       } else if (
         !mod &&
         ['q', 'e'].includes(e.key.toLowerCase()) &&
-        useStore.getState().selection?.kind === 'furniture'
+        useStore.getState().selection.some((x) => x.kind === 'furniture')
       ) {
+        // Every selected furniture item turns about its own centre
         const step = e.shiftKey ? 15 : 90
-        useStore
-          .getState()
-          .rotateFurniture(useStore.getState().selection!.id, e.key.toLowerCase() === 'q' ? -step : step)
+        useStore.getState().rotateSelectedFurniture(e.key.toLowerCase() === 'q' ? -step : step)
       } else if (!mod && !e.altKey) {
         const t = TOOLS.find((x) => x.key === e.key.toLowerCase())
         // The tools are hidden in focus mode, so their keys do nothing there

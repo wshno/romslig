@@ -3,6 +3,7 @@ import { runAssistant } from '@romslig/ai'
 import { newId, type AssistantEvent, type ChatMessage, type Note } from '@romslig/shared'
 import { useAi, useAiAvailable, withAi } from '../ai/client.ts'
 import { activeScenario, useStore } from '../store.ts'
+import { singleSelected } from '../selection.ts'
 
 const SUGGESTIONS = [
   'Foreslå en god møblering av stua',
@@ -21,9 +22,9 @@ interface Pending {
 
 export function AssistantPanel() {
   const project = useStore((s) => s.project)!
-  const selection = useStore((s) => s.selection)
+  const selected = useStore((s) => singleSelected(s.selection))
   const scenario = activeScenario(project)
-  const [roomId, setRoomId] = useState<string | null>(selection?.kind === 'room' ? selection.id : null)
+  const [roomId, setRoomId] = useState<string | null>(selected?.kind === 'room' ? selected.id : null)
   const [input, setInput] = useState('')
   const [pending, setPending] = useState<Pending | null>(null)
   const aiAvailable = useAiAvailable()

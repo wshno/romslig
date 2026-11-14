@@ -42,16 +42,26 @@ import {
   type Vec2,
   type Wall,
   type WallEnd,
+  copyFurnitureToScenario,
+  furnitureCopies,
+  moveFurnitureBy,
 } from '@romslig/shared'
+import {
+  existingIn,
+  NO_SELECTION,
+  selectedIds,
+  toggled,
+  withAdded,
+  type Selection,
+  type SelectedItem,
+} from './selection.ts'
+
+export type { Selection, SelectedItem, SelectionKind } from './selection.ts'
 
 export type Tool =
   'select' | 'wall' | 'door' | 'window' | 'opening' | 'room' | 'calibrate' | 'measure' | 'fixture' | 'run' | 'ceiling'
 export type ViewMode = '2d' | '3d' | 'split' | 'compare'
 export type InspectorTab = 'oversikt' | 'moebler' | 'assistent'
-export type Selection = {
-  kind: 'wall' | 'opening' | 'room' | 'furniture' | 'fixture' | 'run' | 'ceiling'
-  id: string
-} | null
 
 interface State {
   project: Project | null
@@ -63,6 +73,7 @@ interface State {
    */
   focus: boolean
   viewBeforeFocus: ViewMode | null
+  /** What is selected, in the order it was selected; empty when nothing is. Not part of the undo history. */
   selection: Selection
   suggestion: DigitizeSuggestion | null
   inspectorTab: InspectorTab
@@ -82,7 +93,12 @@ interface State {
   setTool(t: Tool): void
   setView(v: ViewMode): void
   setFocus(on: boolean): void
-  select(s: Selection): void
+  /** Selects just this item (replacing the selection), or nothing with null. */
+  select(item: SelectedItem | null): void
+  /** A click on an item: with `additive` (Shift) it is toggled in or out of the selection, else selected alone. */
+  pick(item: SelectedItem, additive: boolean): void
+  /** Replaces the selection, or with `add` adds to it (a selection rectangle). */
+  setSelection(items: readonly SelectedItem[], add?: boolean): void
   setWallThickness(t: number): void
   setInstallationSettings(
     patch: Partial<Pick<State, 'fixtureKind' | 'runKind' | 'runPlacement' | 'showInstallations'>>,
@@ -126,8 +142,22 @@ interface State {
   /** Moves an item, snapping it back against a nearby wall unless snap is false. */
   moveFurniture(id: string, to: Vec2, snap: boolean): void
   rotateFurniture(id: string, deltaDeg: number): void
+  /** Turns every selected furniture item about its own centre, in one undo step. */
+  rotateSelectedFurniture(deltaDeg: number): void
+  /**
+   * Moves furniture items together while they are dragged: `base` is how they stood when the drag
+   * started and `delta` how far the pointer has gone since. No wall snapping (see moveFurnitureBy).
+   */
+  moveFurnitureGroup(base: readonly FurnitureItem[], delta: Vec2): void
+  /** Copies the selected furniture and openings next to the originals and selects the copies (one undo step). */
   duplicateSelected(): void
+  /** Removes everything selected in one undo step; walls via removeWall, so nothing points at them. */
   deleteSelected(): void
+  /**
+   * Copies the selected furniture into another variant (new ids, same place); the active variant
+   * and the selection stay. Returns how many items were copied.
+   */
+  copySelectedFurnitureTo(scenarioId: string): number
   detectRooms(): number
   calibrate(pxDistance: number, meters: number): void
 
@@ -180,7 +210,7 @@ export const useStore = create<State>()(
       view: 'split',
       focus: false,
       viewBeforeFocus: null,
-      selection: null,
+      selection: NO_SELECTION,
       suggestion: null,
       dragging3d: false,
       drawing: false,
@@ -192,7 +222,14 @@ export const useStore = create<State>()(
       showInstallations: true,
 
       load: (p) =>
-        set({ project: p, selection: null, suggestion: null, tool: 'select', focus: false, viewBeforeFocus: null }),
+        set({
+          project: p,
+          selection: NO_SELECTION,
+          suggestion: null,
+          tool: 'select',
+          focus: false,
+          viewBeforeFocus: null,
+        }),
       setTool: (tool) => set({ tool }),
       setView: (view) => set({ view, viewBeforeFocus: null }),
       setFocus: (on) => {
@@ -201,7 +238,9 @@ export const useStore = create<State>()(
         if (on) set({ focus: true, tool: 'select', ...(view === 'split' ? { view: '3d', viewBeforeFocus: view } : {}) })
         else set({ focus: false, view: viewBeforeFocus ?? view, viewBeforeFocus: null })
       },
-      select: (selection) => set({ selection }),
+      select: (item) => set({ selection: item ? [item] : NO_SELECTION }),
+      pick: (item, additive) => (additive ? set({ selection: toggled(get().selection, item) }) : get().select(item)),
+      setSelection: (items, add = false) => set({ selection: add ? withAdded(get().selection, items) : [...items] }),
       setWallThickness: (wallThickness) => set({ wallThickness }),
       setInstallationSettings: (patch) => set(patch),
 
@@ -230,7 +269,7 @@ export const useStore = create<State>()(
           note: null,
         }
         get().updateScenario((s) => ({ ...s, runs: [...s.runs, run] }))
-        set({ selection: { kind: 'run', id: run.id } })
+        get().select({ kind: 'run', id: run.id })
       },
       updateRun: (id, patch) =>
         get().updateScenario((s) => ({ ...s, runs: s.runs.map((r) => (r.id === id ? { ...r, ...patch } : r)) })),
@@ -242,7 +281,7 @@ export const useStore = create<State>()(
           label: null,
         }
         get().updateScenario((s) => ({ ...s, loweredCeilings: [...s.loweredCeilings, c] }))
-        set({ selection: { kind: 'ceiling', id: c.id } })
+        get().select({ kind: 'ceiling', id: c.id })
       },
       updateLoweredCeiling: (id, patch) =>
         get().updateScenario((s) => ({
@@ -287,7 +326,7 @@ export const useStore = create<State>()(
         get().updateScenario((s) => (s.id === base.id ? moveWall(base, wallId, offset) : s)),
       splitWall: (wallId, at) => {
         get().updateScenario((s) => splitWall(s, wallId, at))
-        set({ selection: { kind: 'wall', id: wallId } })
+        get().select({ kind: 'wall', id: wallId })
       },
 
       addOpening: (kind, wallId, offset) => {
@@ -303,7 +342,7 @@ export const useStore = create<State>()(
           flip: false,
         }
         get().updateScenario((s) => ({ ...s, openings: [...s.openings, inWall(o, s)] }))
-        set({ selection: { kind: 'opening', id: o.id } })
+        get().select({ kind: 'opening', id: o.id })
       },
       updateOpening: (id, patch) =>
         get().updateScenario((s) => ({
@@ -317,7 +356,7 @@ export const useStore = create<State>()(
         const polygon = fitRoomToWalls(drawn, s.walls)
         const r: Room = { id: newId('r_'), name: `Rom ${s.rooms.length + 1}`, type: 'annet', polygon, statedArea: null }
         get().updateScenario((sc) => ({ ...sc, rooms: [...sc.rooms, r] }))
-        set({ selection: { kind: 'room', id: r.id } })
+        get().select({ kind: 'room', id: r.id })
       },
       updateRoom: (id, patch) =>
         get().updateScenario((s) => ({ ...s, rooms: s.rooms.map((r) => (r.id === id ? { ...r, ...patch } : r)) })),
@@ -338,7 +377,7 @@ export const useStore = create<State>()(
           label: null,
         }
         get().updateScenario((s) => ({ ...s, furniture: [...s.furniture, item] }))
-        set({ selection: { kind: 'furniture', id: item.id } })
+        get().select({ kind: 'furniture', id: item.id })
       },
       addCustomFurniture: (items) =>
         get().updateProject((p) => ({ ...p, customFurniture: [...p.customFurniture, ...items] })),
@@ -361,29 +400,74 @@ export const useStore = create<State>()(
         const item = activeScenario(get().project!).furniture.find((f) => f.id === id)
         if (item) get().updateFurniture(id, { rotation: (((item.rotation + deltaDeg) % 360) + 360) % 360 })
       },
+      rotateSelectedFurniture: (deltaDeg) => {
+        const ids = new Set(selectedIds(get().selection, 'furniture'))
+        if (!ids.size) return
+        get().updateScenario((s) => ({
+          ...s,
+          furniture: s.furniture.map((f) =>
+            ids.has(f.id) ? { ...f, rotation: (((f.rotation + deltaDeg) % 360) + 360) % 360 } : f,
+          ),
+        }))
+      },
+      moveFurnitureGroup: (base, delta) => get().updateScenario((s) => moveFurnitureBy(s, base, delta)),
       duplicateSelected: () => {
         const sel = get().selection
-        if (sel?.kind !== 'furniture') return
-        const item = activeScenario(get().project!).furniture.find((f) => f.id === sel.id)
-        if (!item) return
-        const copy = { ...item, id: newId('f_'), x: item.x + 0.3, y: item.y + 0.3 }
-        get().updateScenario((s) => ({ ...s, furniture: [...s.furniture, copy] }))
-        set({ selection: { kind: 'furniture', id: copy.id } })
+        const sc = activeScenario(get().project!)
+        const furniture = furnitureCopies(sc, selectedIds(sel, 'furniture'), { x: 0.3, y: 0.3 })
+        // An opening's copy goes along its wall, just past the original (and stays within the wall)
+        const openingIds = new Set(selectedIds(sel, 'opening'))
+        const openings = sc.openings
+          .filter((o) => openingIds.has(o.id))
+          .map((o) => inWall({ ...o, id: newId('o_'), offset: o.offset + o.width + 0.1 }, sc))
+        if (!furniture.length && !openings.length) return
+        get().updateScenario((s) => ({
+          ...s,
+          furniture: [...s.furniture, ...furniture],
+          openings: [...s.openings, ...openings],
+        }))
+        get().setSelection([
+          ...furniture.map((f) => ({ kind: 'furniture' as const, id: f.id })),
+          ...openings.map((o) => ({ kind: 'opening' as const, id: o.id })),
+        ])
       },
 
       deleteSelected: () => {
         const sel = get().selection
-        if (!sel) return
+        if (!sel.length) return
+        const ids = (kind: SelectedItem['kind']) => new Set(selectedIds(sel, kind))
         get().updateScenario((s) => {
-          if (sel.kind === 'furniture') return { ...s, furniture: s.furniture.filter((f) => f.id !== sel.id) }
-          if (sel.kind === 'fixture') return { ...s, fixtures: s.fixtures.filter((x) => x.id !== sel.id) }
-          if (sel.kind === 'run') return { ...s, runs: s.runs.filter((r) => r.id !== sel.id) }
-          if (sel.kind === 'ceiling') return { ...s, loweredCeilings: s.loweredCeilings.filter((c) => c.id !== sel.id) }
-          if (sel.kind === 'wall') return removeWall(s, sel.id)
-          if (sel.kind === 'opening') return { ...s, openings: s.openings.filter((o) => o.id !== sel.id) }
-          return removeRoom(s, sel.id)
+          const furniture = ids('furniture')
+          const fixtures = ids('fixture')
+          const runs = ids('run')
+          const ceilings = ids('ceiling')
+          const openings = ids('opening')
+          let next: Scenario = {
+            ...s,
+            furniture: s.furniture.filter((f) => !furniture.has(f.id)),
+            fixtures: s.fixtures.filter((x) => !fixtures.has(x.id)),
+            runs: s.runs.filter((r) => !runs.has(r.id)),
+            loweredCeilings: s.loweredCeilings.filter((c) => !ceilings.has(c.id)),
+            openings: s.openings.filter((o) => !openings.has(o.id)),
+          }
+          for (const id of ids('room')) next = removeRoom(next, id)
+          for (const id of ids('wall')) next = removeWall(next, id)
+          return next
         })
-        set({ selection: null })
+        set({ selection: NO_SELECTION })
+      },
+
+      copySelectedFurnitureTo: (scenarioId) => {
+        const p = get().project
+        if (!p) return 0
+        const { project, copies } = copyFurnitureToScenario(
+          p,
+          p.activeScenarioId,
+          selectedIds(get().selection, 'furniture'),
+          scenarioId,
+        )
+        if (copies.length) set({ project })
+        return copies.length
       },
 
       /** Re-detects rooms from walls, keeping name/type/stated area of rooms that still exist. */
@@ -415,7 +499,7 @@ export const useStore = create<State>()(
       escape: () => {
         const { drawing, selection, tool } = get()
         if (drawing) set({ tool: 'select' })
-        else if (selection) set({ selection: null })
+        else if (selection.length) set({ selection: NO_SELECTION })
         else if (tool !== 'select') set({ tool: 'select' })
       },
       applyAssistantResult: ({ question, answer, scenarios, notes, baseScenarioId }) =>
@@ -458,14 +542,14 @@ export const useStore = create<State>()(
             }),
           },
           suggestion: null,
-          selection: null,
+          selection: NO_SELECTION,
         })
       },
 
       setActiveScenario: (id) => {
         // Which variant is shown is not a change to the drawing, so it is not an undo step
         untracked(() => get().updateProject((p) => ({ ...p, activeScenarioId: id })))
-        set({ selection: null })
+        set({ selection: NO_SELECTION })
       },
       duplicateScenario: (name) =>
         get().updateProject((p) => {
@@ -496,26 +580,13 @@ export const useStore = create<State>()(
 
 export const useScenario = () => useStore((s) => (s.project ? activeScenario(s.project) : null))
 
-/** True when what is selected is still there in the active variant. */
-function selectionExists(p: Project, sel: NonNullable<Selection>): boolean {
-  const s = activeScenario(p)
-  const lists = {
-    wall: s.walls,
-    opening: s.openings,
-    room: s.rooms,
-    furniture: s.furniture,
-    fixture: s.fixtures,
-    run: s.runs,
-    ceiling: s.loweredCeilings,
-  }
-  return lists[sel.kind].some((x) => x.id === sel.id)
-}
-
 // The selection never points at something that is gone (after undo, a variant switch or a change
 // made by the assistant), so the inspector and the keyboard shortcuts always act on something real.
+// Items that are gone are dropped; the rest stay selected.
 useStore.subscribe((s, prev) => {
-  if (s.project !== prev.project && s.selection && !(s.project && selectionExists(s.project, s.selection)))
-    useStore.setState({ selection: null })
+  if (s.project === prev.project || !s.selection.length) return
+  const kept = s.project ? existingIn(s.selection, activeScenario(s.project)) : NO_SELECTION
+  if (kept !== s.selection) useStore.setState({ selection: kept.length ? kept : NO_SELECTION })
 })
 
 const history = () => useStore.temporal.getState()
