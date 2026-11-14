@@ -41,6 +41,12 @@ export default definePlaywrightConfig({
     baseURL,
     // Also for the first attempt: a test that fails once and passes on retry is the one we need to see.
     trace: 'retain-on-failure',
+    // A UTF-8 locale for the browser, wherever the suite runs. Without one Chromium cannot write a
+    // file name with æøå in it and calls every such download "download". e2e/Dockerfile sets it for
+    // the compose stack, but the nightly runs in the shared playwright-config runner image.
+    launchOptions: {
+      env: { ...process.env, LANG: /utf-?8/i.test(process.env.LANG ?? '') ? process.env.LANG : 'C.UTF-8' },
+    },
   },
   // Specs that need the compose stack itself (e.g. a second user through the second proxy port).
   grepInvert: remote ? /@local-only/ : undefined,
