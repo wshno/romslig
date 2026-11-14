@@ -2,6 +2,7 @@ import type Konva from 'konva'
 import { Group, Rect, Shape, Text } from 'react-konva'
 import type { Vec2 } from '@romslig/shared'
 import { plateSize } from './labelFit.ts'
+import { LABEL_FONT_FAMILY, measureText } from './measureText.ts'
 import { gridLines, gridSpacing, visibleRect } from './planStyle.ts'
 
 /**
@@ -97,7 +98,7 @@ export function PlateText({
   rotation?: number
   dy?: number
 }) {
-  const { width, height } = plateSize([text], fontSize, bold)
+  const { width, height } = plateSize([{ text, fontSize, bold }], fontSize, measureText)
   const k = 1 / scale
   const x = (-width / 2) * k
   const y = (-height / 2 + dy) * k
@@ -114,6 +115,7 @@ export function PlateText({
         wrap="none"
         text={text}
         fontSize={fontSize * k}
+        fontFamily={LABEL_FONT_FAMILY}
         fontStyle={bold ? 'bold' : 'normal'}
         fill={color}
       />

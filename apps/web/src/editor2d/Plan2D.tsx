@@ -2,7 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Konva from 'konva'
 import { Circle, Group, Image as KImage, Layer, Line, Stage } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
-import { add, dist, furnitureIssues, mul, RUN_INFO, sub, type Scenario } from '@romslig/shared'
+import {
+  add,
+  dist,
+  footprint,
+  furnitureIssues,
+  getCatalogItem,
+  itemSize,
+  mul,
+  RUN_INFO,
+  sub,
+  type Scenario,
+} from '@romslig/shared'
 import { api } from '../api.ts'
 import { activeScenario, useStore } from '../store.ts'
 import { Furniture2D } from './Furniture2D.tsx'
@@ -88,6 +99,15 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   const [imgOpacity, setImgOpacity] = useState(0.6)
   const [showDims, setShowDims] = useState(true)
   const issues = useMemo(() => furnitureIssues(scenario), [scenario])
+  // Furniture footprints that room labels try not to cover (rugs may be covered)
+  const labelObstacles = useMemo(
+    () =>
+      scenario.furniture.flatMap((f) => {
+        const cat = getCatalogItem(f.catalogId)
+        return cat.shape === 'rug' ? [] : [footprint(f, itemSize(f, cat))]
+      }),
+    [scenario.furniture],
+  )
   const lastButtonRef = useRef(0)
 
   const fitView = useMemo(() => {
@@ -229,7 +249,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
             {/* Labels above furniture and openings, but click-through to what lies under them */}
             <Group listening={false}>
               {scenario.rooms.map((r) => (
-                <RoomLabel key={`label-${r.id}`} room={r} scale={scale} />
+                <RoomLabel key={`label-${r.id}`} room={r} scale={scale} obstacles={labelObstacles} />
               ))}
               {showDims && scenario.rooms.map((r) => <RoomEdgeLengths key={`dim-${r.id}`} room={r} scale={scale} />)}
             </Group>
