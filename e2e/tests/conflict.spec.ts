@@ -21,7 +21,7 @@ test.describe('saving from two places', () => {
       await other.getByRole('button', { name: 'Last inn siste versjon' }).click()
       await expect(other.getByRole('spinbutton', { name: /Takhøyde/ })).toHaveValue('2.7')
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 })
