@@ -55,6 +55,12 @@ interface State {
   project: Project | null
   tool: Tool
   view: ViewMode
+  /**
+   * The side panels (tools and inspector) are hidden and the views get the whole width. Entered
+   * from 2D + 3D it shows 3D alone; `viewBeforeFocus` is what leaving it goes back to.
+   */
+  focus: boolean
+  viewBeforeFocus: ViewMode | null
   selection: Selection
   suggestion: DigitizeSuggestion | null
   inspectorTab: InspectorTab
@@ -71,6 +77,7 @@ interface State {
   load(p: Project): void
   setTool(t: Tool): void
   setView(v: ViewMode): void
+  setFocus(on: boolean): void
   select(s: Selection): void
   setWallThickness(t: number): void
   setInstallationSettings(
@@ -153,6 +160,8 @@ export const useStore = create<State>()(
       project: null,
       tool: 'select',
       view: 'split',
+      focus: false,
+      viewBeforeFocus: null,
       selection: null,
       suggestion: null,
       dragging3d: false,
@@ -163,9 +172,16 @@ export const useStore = create<State>()(
       runPlacement: 'wall',
       showInstallations: true,
 
-      load: (p) => set({ project: p, selection: null, suggestion: null, tool: 'select' }),
+      load: (p) =>
+        set({ project: p, selection: null, suggestion: null, tool: 'select', focus: false, viewBeforeFocus: null }),
       setTool: (tool) => set({ tool }),
-      setView: (view) => set({ view }),
+      setView: (view) => set({ view, viewBeforeFocus: null }),
+      setFocus: (on) => {
+        const { focus, view, viewBeforeFocus } = get()
+        if (on === focus) return
+        if (on) set({ focus: true, tool: 'select', ...(view === 'split' ? { view: '3d', viewBeforeFocus: view } : {}) })
+        else set({ focus: false, view: viewBeforeFocus ?? view, viewBeforeFocus: null })
+      },
       select: (selection) => set({ selection }),
       setWallThickness: (wallThickness) => set({ wallThickness }),
       setInstallationSettings: (patch) => set(patch),

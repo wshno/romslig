@@ -59,6 +59,7 @@ export function Editor({ projectId }: { projectId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [save, setSave] = useState<SaveStatus>({ state: 'saved' })
   const inspectorWide = useStore((s) => s.inspectorTab === 'assistent' && !s.selection)
+  const focus = useStore((s) => s.focus)
   const keyDialogOpen = useAi((s) => s.keyDialogOpen)
   const typing = useTypingAsOneUndoStep()
 
@@ -175,7 +176,8 @@ export function Editor({ projectId }: { projectId: string }) {
           .rotateFurniture(useStore.getState().selection!.id, e.key.toLowerCase() === 'q' ? -step : step)
       } else if (!mod && !e.altKey) {
         const t = TOOLS.find((x) => x.key === e.key.toLowerCase())
-        if (t && document.pointerLockElement === null) useStore.getState().setTool(t.id)
+        // The tools are hidden in focus mode, so their keys do nothing there
+        if (t && document.pointerLockElement === null && !useStore.getState().focus) useStore.getState().setTool(t.id)
         if (e.key === 'Escape') useStore.getState().setTool('select')
       }
     }
@@ -193,13 +195,16 @@ export function Editor({ projectId }: { projectId: string }) {
   if (!project) return <div className="home muted">Laster prosjekt…</div>
 
   return (
-    <div className={`editor${inspectorWide ? ' wide-inspector' : ''}`} {...typing}>
+    <div
+      className={['editor', focus && 'focus', !focus && inspectorWide && 'wide-inspector'].filter(Boolean).join(' ')}
+      {...typing}
+    >
       <TopBar save={save} onRetry={() => void saverRef.current?.flush()} />
-      <Toolbar />
+      {!focus && <Toolbar />}
       <main className="views">
         <ViewPanes />
       </main>
-      <Inspector />
+      {!focus && <Inspector />}
       {conflict && (
         <div className="modal-backdrop">
           <div className="modal" role="alertdialog" aria-labelledby="conflict-title">
@@ -242,6 +247,7 @@ function ViewPanes() {
 function TopBar({ save, onRetry }: { save: SaveStatus; onRetry: () => void }) {
   const project = useStore((s) => s.project)!
   const view = useStore((s) => s.view)
+  const focus = useStore((s) => s.focus)
   const { canUndo, canRedo } = useHistory()
   const { setView, updateProject, setActiveScenario, duplicateScenario, renameScenario, deleteScenario } =
     useStore.getState()
@@ -311,6 +317,14 @@ function TopBar({ save, onRetry }: { save: SaveStatus; onRetry: () => void }) {
           </button>
         ))}
       </div>
+      <button
+        className={focus ? 'active' : ''}
+        aria-pressed={focus}
+        title={focus ? 'Vis sidepanelene igjen' : 'Fokus: skjul verktøy og panel, og vis 3D alene'}
+        onClick={() => useStore.getState().setFocus(!focus)}
+      >
+        {focus ? 'Vis paneler' : 'Fokus'}
+      </button>
       <button
         title="Skriv ut: plan med mål, romliste og møbelliste"
         aria-label="Skriv ut"

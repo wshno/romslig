@@ -196,6 +196,11 @@ select {
   grid-template-rows: 48px 1fr;
   grid-template-areas: 'top top top' 'tools views inspector';
 }
+/* Focus: no tools column and no inspector, the views take the width */
+.editor.focus {
+  grid-template-columns: 1fr;
+  grid-template-areas: 'top' 'views';
+}
 .topbar {
   grid-area: top;
   display: flex;
