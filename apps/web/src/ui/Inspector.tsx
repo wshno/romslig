@@ -15,7 +15,7 @@ import {
 import { digitizePlan } from '@romslig/ai'
 import { api, preparePlanForAi } from '../api.ts'
 import { withAi } from '../ai/client.ts'
-import { activeScenario, useStore } from '../store.ts'
+import { activeScenario, useStore, type InspectorTab } from '../store.ts'
 import { ROOM_COLORS, ROOM_LABELS, fmtM2 } from '../theme.ts'
 import { FurnitureCatalog, FurnitureList, FurnitureProps } from './FurniturePanel.tsx'
 import { AssistantPanel, NotesList } from './AssistantPanel.tsx'
@@ -49,21 +49,25 @@ export function Inspector() {
     const c = scenario.loweredCeilings.find((x) => x.id === selection.id)
     if (c) content = <CeilingProps key={c.id} ceiling={c} />
   }
+  // The tabs stay visible with a selection; a click on one clears the selection and shows that tab
+  const tabButton = (t: InspectorTab, label: string) => (
+    <button
+      className={tab === t && !selection ? 'active' : ''}
+      onClick={() => {
+        if (selection) useStore.getState().select(null)
+        setTab(t)
+      }}
+    >
+      {label}
+    </button>
+  )
   return (
     <aside className="inspector">
-      {!selection && (
-        <div className="tabs">
-          <button className={tab === 'oversikt' ? 'active' : ''} onClick={() => setTab('oversikt')}>
-            Oversikt
-          </button>
-          <button className={tab === 'moebler' ? 'active' : ''} onClick={() => setTab('moebler')}>
-            Møbler
-          </button>
-          <button className={tab === 'assistent' ? 'active' : ''} onClick={() => setTab('assistent')}>
-            ✨ Assistent
-          </button>
-        </div>
-      )}
+      <div className="tabs">
+        {tabButton('oversikt', 'Oversikt')}
+        {tabButton('moebler', 'Møbler')}
+        {tabButton('assistent', '✨ Assistent')}
+      </div>
       {content}
     </aside>
   )

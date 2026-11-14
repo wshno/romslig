@@ -178,7 +178,8 @@ export function Editor({ projectId }: { projectId: string }) {
         const t = TOOLS.find((x) => x.key === e.key.toLowerCase())
         // The tools are hidden in focus mode, so their keys do nothing there
         if (t && document.pointerLockElement === null && !useStore.getState().focus) useStore.getState().setTool(t.id)
-        if (e.key === 'Escape') useStore.getState().setTool('select')
+        // In 3D walk mode Escape releases the pointer lock and nothing else
+        if (e.key === 'Escape' && document.pointerLockElement === null) useStore.getState().escape()
       }
     }
     window.addEventListener('keydown', on)

@@ -52,9 +52,10 @@ async function furnish(page: Page, search: string, name: string) {
   const panel = page.locator('.inspector')
   await expect(panel.getByText(name, { exact: true })).toBeVisible()
   await expect(panel.getByText('Ingen problemer')).toBeVisible()
+  // The header's way back, not the Oversikt tab: that one shows the rooms, not the furniture tab
   await panel
+    .locator('.inspector-header')
     .getByRole('button', { name: /Oversikt/ })
-    .first()
     .click()
   await expect(page.locator('.room-list li').filter({ hasText: name })).toHaveCount(1)
 }
@@ -180,6 +181,49 @@ test.describe('editor', () => {
       const [first, second] = await walls()
       expect(second!.a.x).toBeCloseTo(first!.b.x, 6)
       expect(second!.a.y).toBeCloseTo(first!.b.y, 6)
+    } finally {
+      await removeProject(page.request, id)
+    }
+  })
+
+  test('Escape clears the selection, and the inspector keeps its tabs while something is selected', async ({
+    page,
+  }) => {
+    const id = await createProject(page, projectName('utvalg'))
+    try {
+      await page.getByRole('button', { name: '2D', exact: true }).click()
+      const click = await drawing(page)
+      const tabs = page.locator('.inspector .tabs')
+      const wallPanel = page.getByRole('spinbutton', { name: 'Lengde' })
+
+      // One wall, drawn with Alt (no grid snap) so it lies exactly where the clicks below select
+      // it; Escape ends it and goes back to Velg
+      await tool(page, 'Vegg').click()
+      await page.keyboard.down('Alt')
+      await click(-150, 0)
+      await click(150, 0)
+      await page.keyboard.up('Alt')
+      await page.keyboard.press('Escape')
+      await expect(tool(page, 'Velg')).toHaveClass(/active/)
+
+      // Selected: the wall's properties, and the tabs still above them
+      await click(0, 0)
+      await expect(wallPanel).toBeVisible()
+      await expect(tabs).toBeVisible()
+      await expect(tabs.getByRole('button')).toHaveText(['Oversikt', 'Møbler', '✨ Assistent'])
+
+      await page.keyboard.press('Escape')
+      await expect(wallPanel).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Finn rom automatisk' })).toBeVisible()
+      await expect(tool(page, 'Velg')).toHaveClass(/active/)
+
+      // A tab clicked with something selected clears the selection and shows that tab
+      await click(0, 0)
+      await expect(wallPanel).toBeVisible()
+      await tabs.getByRole('button', { name: 'Møbler', exact: true }).click()
+      await expect(wallPanel).toHaveCount(0)
+      await expect(page.getByPlaceholder('Søk…')).toBeVisible()
+      await expect(tabs.getByRole('button', { name: 'Møbler', exact: true })).toHaveClass(/active/)
     } finally {
       await removeProject(page.request, id)
     }
