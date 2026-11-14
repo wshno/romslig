@@ -263,6 +263,62 @@ test.describe('editor', () => {
     }
   })
 
+  test('drags a wall sideways with the wall in the corner following, and splits it', async ({ page }) => {
+    const id = await createProject(page, projectName('flytt-vegg'))
+    try {
+      await page.getByRole('button', { name: '2D', exact: true }).click()
+      const click = await drawing(page)
+      const stage = (await page.locator('.plan2d .konvajs-content').boundingBox())!
+      const to = (dx: number, dy: number) =>
+        page.mouse.move(stage.x + stage.width / 2 + dx, stage.y + stage.height / 2 + dy, { steps: 8 })
+      const walls = async () => (await stored(page, id)).scenarios[0]!.walls
+
+      // An L: a wall to the right, then one down. Alt keeps the clicks exact, so the wall lies
+      // under the pointer where it is grabbed below.
+      await tool(page, 'Vegg').click()
+      await page.keyboard.down('Alt')
+      await click(-150, 0)
+      await click(150, 0)
+      await click(150, 150)
+      await page.keyboard.up('Alt')
+      await page.keyboard.press('Escape')
+      await saved(page)
+      await expect.poll(async () => (await walls()).length).toBe(2)
+      const [top] = await walls()
+
+      // Select the top wall and drag its middle part down
+      await tool(page, 'Velg').click()
+      await click(-50, 0)
+      await expect(page.getByRole('button', { name: 'Del vegg' })).toBeVisible()
+      await to(-50, 0)
+      await page.mouse.down()
+      await to(-50, 40)
+      await to(-50, 70)
+      await page.mouse.up()
+      await saved(page)
+      await expect.poll(async () => (await walls())[0]!.a.y).toBeGreaterThan(top!.a.y + 0.1)
+      const [moved, side] = await walls()
+      // Still horizontal, moved a whole number of 10 cm steps, and the corner is still closed
+      expect(moved!.b.y).toBeCloseTo(moved!.a.y, 6)
+      const steps = (moved!.a.y - top!.a.y) * 10
+      expect(Math.abs(steps - Math.round(steps))).toBeLessThan(1e-6)
+      expect(moved!.a.x).toBeCloseTo(top!.a.x, 6)
+      expect(side!.a.x).toBeCloseTo(moved!.b.x, 6)
+      expect(side!.a.y).toBeCloseTo(moved!.b.y, 6)
+
+      // Split it in the middle: two pieces that meet there
+      await page.getByRole('button', { name: 'Del vegg' }).click()
+      await saved(page)
+      await expect.poll(async () => (await walls()).length).toBe(3)
+      const [first, second] = await walls()
+      expect(first!.b.x).toBeCloseTo((moved!.a.x + moved!.b.x) / 2, 6)
+      expect(second!.a.x).toBeCloseTo(first!.b.x, 6)
+      expect(second!.b.x).toBeCloseTo(moved!.b.x, 6)
+    } finally {
+      await removeProject(page.request, id)
+    }
+  })
+
   test('focus hides the tools and the panel and shows 3D alone, until the panels are shown again', async ({ page }) => {
     const id = await createProject(page, projectName('fokus'))
     try {

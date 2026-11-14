@@ -6,8 +6,10 @@ import {
   followWalls,
   getCatalogItem,
   itemSize,
+  moveWall,
   moveWallEndpoint,
   setWallLength,
+  splitWall,
   newId,
   redetectRooms,
   removeRoom,
@@ -103,6 +105,13 @@ interface State {
   dragWallEndpoint(base: Scenario, wallId: string, end: WallEnd, to: Vec2): void
   /** Moves the wall's end `b` along the wall so it gets this length; attached walls follow. */
   setWallLength(wallId: string, length: number): void
+  /**
+   * Moves a whole wall parallel to itself, `offset` metres along its left normal, while it is
+   * dragged. Like dragWallEndpoint, everything is worked out from `base` on every move.
+   */
+  dragWall(base: Scenario, wallId: string, offset: number): void
+  /** Splits a wall in two at `at` metres from its start (see splitWall); the first piece keeps the id. */
+  splitWall(wallId: string, at: number): void
   addOpening(kind: OpeningKind, wallId: string, offset: number): void
   updateOpening(id: string, patch: Partial<Opening>): void
   addRoom(polygon: Vec2[]): void
@@ -274,6 +283,12 @@ export const useStore = create<State>()(
       dragWallEndpoint: (base, wallId, end, to) =>
         get().updateScenario((s) => (s.id === base.id ? moveWallEndpoint(base, wallId, end, to) : s)),
       setWallLength: (wallId, length) => get().updateScenario((s) => setWallLength(s, wallId, length)),
+      dragWall: (base, wallId, offset) =>
+        get().updateScenario((s) => (s.id === base.id ? moveWall(base, wallId, offset) : s)),
+      splitWall: (wallId, at) => {
+        get().updateScenario((s) => splitWall(s, wallId, at))
+        set({ selection: { kind: 'wall', id: wallId } })
+      },
 
       addOpening: (kind, wallId, offset) => {
         const d = DEFAULTS[kind]

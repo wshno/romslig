@@ -5,13 +5,16 @@ import type { Fixture } from './installations.ts'
 import {
   boundingWalls,
   fitRoomToWalls,
+  moveWall,
   moveWallEndpoint,
   removeRoom,
   removeWall,
   replaceGeometry,
   rescaleScenario,
   setWallLength,
+  splitWall,
   wallsMovedWith,
+  wallsMovedWithWall,
 } from './mutations.ts'
 import { redetectRooms } from './scenario.ts'
 
@@ -357,5 +360,131 @@ describe('redetectRooms', () => {
     const base = flat()
     const s = redetectRooms({ ...base, rooms: [...base.rooms, zone('z', 'Terrasse', 10, 0)] })
     expect(s.rooms.map((r) => r.name).sort()).toEqual(['Bad', 'Stue', 'Terrasse'])
+  })
+})
+
+describe('moveWall', () => {
+  it('moves an outer wall out and keeps the corners closed and the neighbours square', () => {
+    const base = flat()
+    // r runs downwards, so its left normal points to -x: a negative offset moves it out to the right
+    const s = moveWall(base, 'r', -0.5)
+    expect(wallOf(s, 'r').a).toEqual(v(6.5, 0))
+    expect(wallOf(s, 'r').b).toEqual(v(6.5, 3))
+    expect(wallOf(s, 't').b).toEqual(v(6.5, 0))
+    expect(wallOf(s, 'b').a).toEqual(v(6.5, 3))
+    expect(wallOf(s, 't').a).toEqual(v(0, 0))
+    expect(area(s, 'Bad')).toBeCloseTo(area(base, 'Bad') + 0.5 * 2.9, 5)
+    expect(area(s, 'Stue')).toBeCloseTo(area(base, 'Stue'), 5)
+    expect(roomOf(s, 'Bad').id).toBe(roomOf(base, 'Bad').id)
+  })
+
+  it('takes a wall standing against its side along, square to it', () => {
+    const base = flat()
+    expect(wallsMovedWithWall(base, 't').sort()).toEqual(['l', 'm', 'r', 't'])
+    const s = moveWall(base, 't', -0.5)
+    expect(wallOf(s, 't').a).toEqual(v(0, -0.5))
+    expect(wallOf(s, 't').b).toEqual(v(6, -0.5))
+    expect(wallOf(s, 'l').b).toEqual(v(0, -0.5))
+    expect(wallOf(s, 'r').a).toEqual(v(6, -0.5))
+    expect(wallOf(s, 'm').a.x).toBeCloseTo(4)
+    expect(wallOf(s, 'm').a.y).toBeCloseTo(-0.5)
+    expect(wallOf(s, 'm').b).toEqual(v(4, 3))
+    expect(area(s, 'Stue')).toBeCloseTo(area(base, 'Stue') + 0.5 * 3.9, 5)
+    expect(area(s, 'Bad')).toBeCloseTo(area(base, 'Bad') + 0.5 * 1.9, 5)
+  })
+
+  it('slides the ends of a wall that stands against other walls along them', () => {
+    const base = flat()
+    const s = moveWall(base, 'm', -1)
+    expect(wallOf(s, 'm').a).toEqual(v(5, 0))
+    expect(wallOf(s, 'm').b).toEqual(v(5, 3))
+    expect(wallOf(s, 't')).toEqual(wallOf(base, 't'))
+    expect(wallOf(s, 'b')).toEqual(wallOf(base, 'b'))
+    expect(area(s, 'Stue')).toBeCloseTo(area(base, 'Stue') + 2.9, 5)
+    expect(area(s, 'Bad')).toBeCloseTo(area(base, 'Bad') - 2.9, 5)
+  })
+
+  it('keeps its ends on a slanted host and stays parallel', () => {
+    // A wall from the middle of a slanted wall down to the floor wall
+    const base: Scenario = {
+      ...emptyScenario(),
+      walls: [wall('h', 0, 0, 4, 2), wall('f', 0, 4, 6, 4), wall('g', 2, 1, 2, 4)],
+    }
+    const g = wallOf(moveWall(base, 'g', -1), 'g')
+    expect(g.a.x).toBeCloseTo(3)
+    expect(g.a.y).toBeCloseTo(1.5)
+    expect(g.b).toEqual(v(3, 4))
+  })
+
+  it('keeps openings and fixtures where they were along the wall', () => {
+    const base: Scenario = {
+      ...flat(),
+      openings: [
+        { id: 'o', wallId: 't', kind: 'window', offset: 5, width: 0.8, height: 1.2, sill: 0.9, flip: false },
+        { id: 'd', wallId: 'm', kind: 'door', offset: 1.5, width: 0.8, height: 2.1, sill: 0, flip: false },
+      ],
+      fixtures: [socket(2, 0.05, 't')],
+    }
+    const s = moveWall(base, 't', -0.5)
+    expect(s.openings.find((o) => o.id === 'o')!.offset).toBeCloseTo(5)
+    // m got 0.5 m longer at its start: the door stays where it was in the room
+    expect(s.openings.find((o) => o.id === 'd')!.offset).toBeCloseTo(2)
+    expect(s.fixtures[0]!.x).toBeCloseTo(2)
+    expect(s.fixtures[0]!.y).toBeCloseTo(-0.45)
+    expect(moveWall(base, 'm', -1).openings.find((o) => o.id === 'd')!.offset).toBeCloseTo(1.5)
+  })
+
+  it('returns the same scenario for a zero offset or an unknown wall', () => {
+    const base = flat()
+    expect(moveWall(base, 't', 0)).toBe(base)
+    expect(moveWall(base, 'nope', 1)).toBe(base)
+  })
+})
+
+describe('splitWall', () => {
+  it('replaces a wall by two pieces with the same properties that meet at the split point', () => {
+    const base = flat()
+    const s = splitWall(base, 't', 2, 'n')
+    expect(s.walls).toHaveLength(base.walls.length + 1)
+    expect(wallOf(s, 't')).toEqual({ ...wallOf(base, 't'), b: v(2, 0) })
+    expect(wallOf(s, 'n')).toEqual({ ...wallOf(base, 't'), id: 'n', a: v(2, 0) })
+    expect(area(s, 'Stue')).toBeCloseTo(area(base, 'Stue'), 5)
+    expect(area(s, 'Bad')).toBeCloseTo(area(base, 'Bad'), 5)
+  })
+
+  it('puts openings and fixtures on the piece they lie on', () => {
+    const base: Scenario = {
+      ...flat(),
+      openings: [
+        { id: 'o', wallId: 't', kind: 'window', offset: 5, width: 0.8, height: 1.2, sill: 0.9, flip: false },
+        { id: 'd', wallId: 't', kind: 'door', offset: 1, width: 0.8, height: 2.1, sill: 0, flip: false },
+      ],
+      fixtures: [{ ...socket(2.5, 0.05, 't'), id: 'x1' }, socket(1, 0.05, 't')],
+    }
+    const s = splitWall(base, 't', 2, 'n')
+    expect(s.openings.find((o) => o.id === 'o')).toMatchObject({ wallId: 'n', offset: 3 })
+    expect(s.openings.find((o) => o.id === 'd')).toMatchObject({ wallId: 't', offset: 1 })
+    expect(s.fixtures.map((x) => x.wallId)).toEqual(['n', 't'])
+  })
+
+  it('moves a split through an opening to its nearest edge', () => {
+    const base: Scenario = {
+      ...flat(),
+      openings: [{ id: 'd', wallId: 't', kind: 'door', offset: 3, width: 0.8, height: 2.1, sill: 0, flip: false }],
+    }
+    const s = splitWall(base, 't', 3.1, 'n')
+    expect(wallOf(s, 't').b.x).toBeCloseTo(3.4)
+    expect(s.openings[0]).toMatchObject({ wallId: 't', offset: 3 })
+    const left = splitWall(base, 't', 2.8, 'n')
+    expect(wallOf(left, 't').b.x).toBeCloseTo(2.6)
+    expect(left.openings[0]!.wallId).toBe('n')
+    expect(left.openings[0]!.offset).toBeCloseTo(0.4)
+  })
+
+  it('changes nothing when a piece would be too short', () => {
+    const base = flat()
+    expect(splitWall(base, 't', 0.01)).toBe(base)
+    expect(splitWall(base, 't', 6)).toBe(base)
+    expect(splitWall(base, 'nope', 2)).toBe(base)
   })
 })
