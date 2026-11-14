@@ -18,6 +18,7 @@ import {
   rescaleScenario,
   roomAt,
   snapToWall,
+  tidyReferences,
   type ChatMessage,
   type DigitizeSuggestion,
   type FurnitureItem,
@@ -132,6 +133,11 @@ interface State {
   updateOpening(id: string, patch: Partial<Opening>): void
   addRoom(polygon: Vec2[]): void
   updateRoom(id: string, patch: Partial<Room>): void
+  /**
+   * Gives a room a new outline (its corners dragged, added or removed by hand); every piece of
+   * furniture is then assigned to the room it now stands in.
+   */
+  setRoomPolygon(id: string, polygon: Vec2[]): void
   /** Places a catalog item; snaps it to a wall when dropped close to one. */
   addFurniture(catalogId: string, at: Vec2, opts?: { snap?: boolean; rotation?: number }): void
   /** Adds several finished items in one undo step. */
@@ -360,6 +366,10 @@ export const useStore = create<State>()(
       },
       updateRoom: (id, patch) =>
         get().updateScenario((s) => ({ ...s, rooms: s.rooms.map((r) => (r.id === id ? { ...r, ...patch } : r)) })),
+      setRoomPolygon: (id, polygon) =>
+        get().updateScenario((s) =>
+          tidyReferences({ ...s, rooms: s.rooms.map((r) => (r.id === id ? { ...r, polygon } : r)) }),
+        ),
 
       addFurniture: (catalogId, at, opts) => {
         const sc = activeScenario(get().project!)

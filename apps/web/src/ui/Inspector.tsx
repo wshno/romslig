@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ROOM_TYPES,
   areaDeviation,
+  boundingWalls,
   polygonArea,
   wallLength,
   withOpeningKind,
@@ -40,7 +41,7 @@ export function Inspector() {
   if (many) content = <ManySelected />
   else if (wall) content = <WallProps key={wall.id} wall={wall} />
   else if (opening) content = <OpeningProps key={opening.id} o={opening} />
-  else if (room) content = <RoomProps key={room.id} room={room} />
+  else if (room) content = <RoomProps key={room.id} room={room} walls={scenario.walls} />
   else if (furniture) content = <FurnitureProps key={furniture.id} item={furniture} />
   else if (selection?.kind === 'fixture') {
     const fx = scenario.fixtures.find((x) => x.id === selection.id)
@@ -244,9 +245,14 @@ function OpeningProps({ o }: { o: Opening }) {
   )
 }
 
-function RoomProps({ room }: { room: Room }) {
+function RoomProps({ room, walls }: { room: Room; walls: Wall[] }) {
   const update = (p: Partial<Room>) => useStore.getState().updateRoom(room.id, p)
   const area = polygonArea(room.polygon)
+  // Same rule as the plan: corner handles only for rooms that are not bounded by walls
+  const followsWalls = useMemo(
+    () => room.polygon.length >= 3 && boundingWalls(room.polygon, walls) !== null,
+    [room.polygon, walls],
+  )
   const dev = areaDeviation(room)
   const [recognizing, setRecognizing] = useState(false)
   return (
@@ -268,6 +274,11 @@ function RoomProps({ room }: { room: Room }) {
       </label>
       <p>
         Målt areal: <b>{fmtM2(area)}</b>
+      </p>
+      <p className="muted">
+        {followsWalls
+          ? 'Formen følger veggene rundt rommet. Flytt veggene for å endre den.'
+          : 'Dra i hjørnene i planen for å endre formen. Dobbeltklikk på en kant for å legge til et hjørne, Delete over et hjørne fjerner det.'}
       </p>
       <label className="field">
         <span>Oppgitt areal</span>

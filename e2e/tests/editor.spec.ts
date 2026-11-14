@@ -9,7 +9,7 @@ interface SavedProject {
     name: string
     walls: { id: string; a: { x: number; y: number }; b: { x: number; y: number } }[]
     openings: { wallId: string; offset: number }[]
-    rooms: unknown[]
+    rooms: { polygon: { x: number; y: number }[] }[]
     furniture: unknown[]
   }[]
 }
@@ -481,6 +481,62 @@ test.describe('editor', () => {
       await saved(page)
       await expect.poll(async () => (await door()).wallId).toBe(top!.id)
       expect((await door()).offset).toBeCloseTo(along.offset, 6)
+    } finally {
+      await removeProject(page, id)
+    }
+  })
+
+  test('drags a corner of a room drawn across empty space, as one undo step', async ({ page }) => {
+    const id = await createProject(page, projectName('rom-hjorne'))
+    try {
+      await page.getByRole('button', { name: '2D', exact: true }).click()
+      const click = await drawing(page)
+      const stage = (await page.locator('.plan2d .konvajs-content').boundingBox())!
+      const to = (dx: number, dy: number) =>
+        page.mouse.move(stage.x + stage.width / 2 + dx, stage.y + stage.height / 2 + dy, { steps: 8 })
+      const polygon = async () => (await stored(page, id)).scenarios[0]!.rooms[0]?.polygon ?? []
+      const area = (poly: { x: number; y: number }[]) =>
+        Math.abs(
+          poly.reduce((s, p, i) => s + p.x * poly[(i + 1) % poly.length]!.y - poly[(i + 1) % poly.length]!.x * p.y, 0),
+        ) / 2
+
+      // A room with no walls around it, closed on its first corner. Alt keeps the corners exactly
+      // where the clicks were, so the handle is found under the pointer below.
+      await tool(page, 'Rom').click()
+      await page.keyboard.down('Alt')
+      await click(-150, -100)
+      await click(150, -100)
+      await click(150, 100)
+      await click(-150, 100)
+      await click(-150, -100)
+      await page.keyboard.up('Alt')
+      await saved(page)
+      await expect.poll(async () => (await polygon()).length).toBe(4)
+      const before = await polygon()
+
+      // Velg and select it: it is not bounded by walls, so its panel says the corners can be dragged
+      await tool(page, 'Velg').click()
+      await click(0, 0)
+      await expect(page.locator('.inspector').getByText(/Dra i hjørnene/)).toBeVisible()
+
+      // Drag the bottom right corner further out
+      await to(150, 100)
+      await page.mouse.down()
+      await to(190, 130)
+      await to(220, 160)
+      await page.mouse.up()
+      await saved(page)
+      await expect.poll(async () => area(await polygon())).toBeGreaterThan(area(before) + 0.05)
+      const after = await polygon()
+      // Only that corner moved
+      expect(after).toHaveLength(4)
+      for (const i of [0, 1, 3]) expect(after[i]).toEqual(before[i])
+      expect(Math.hypot(after[2]!.x - before[2]!.x, after[2]!.y - before[2]!.y)).toBeGreaterThan(0.1)
+
+      // One undo takes the whole drag back
+      await page.keyboard.press('Control+z')
+      await saved(page)
+      await expect.poll(polygon).toEqual(before)
     } finally {
       await removeProject(page, id)
     }
