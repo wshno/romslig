@@ -125,4 +125,37 @@ test.describe('projects', () => {
       for (const id of ids) await removeProject(page.request, id)
     }
   })
+
+  test('the plan image can be hidden in 2D, and stays hidden after a reload', async ({ page }) => {
+    const id = await createProject(page, projectName('skjul plan'))
+    try {
+      await page
+        .locator('.file-button input[type=file]')
+        .setInputFiles({ name: 'plan.png', mimeType: 'image/png', buffer: planPng() })
+      await expect(page.getByRole('button', { name: /Digitaliser med AI/ })).toBeVisible()
+      await saved(page)
+
+      // The canvas can't be inspected: the toggle and the opacity slider tell whether the plan is drawn
+      const overlay = page.locator('.plan2d-overlay')
+      const toggle = overlay.getByRole('button', { name: 'Plantegning', exact: true })
+      const slider = overlay.getByRole('slider')
+      await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+      await expect(slider).toBeVisible()
+
+      await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      await expect(slider).toHaveCount(0)
+
+      await page.reload()
+      await expect(page.getByRole('button', { name: /Digitaliser med AI/ })).toBeVisible()
+      await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      await expect(slider).toHaveCount(0)
+
+      await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+      await expect(slider).toBeVisible()
+    } finally {
+      await removeProject(page.request, id)
+    }
+  })
 })

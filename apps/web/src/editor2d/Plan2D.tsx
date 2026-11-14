@@ -22,6 +22,7 @@ import { FURNITURE_DND_TYPE } from '../dnd.ts'
 import { fmtM } from '../theme.ts'
 import { OpeningShape } from './OpeningShape.tsx'
 import { Background, Grid, Label } from './planShapes.tsx'
+import { usePlanImagePrefs } from './planImagePrefs.ts'
 import { HINTS, SNAP_COLORS, wallFill, wallQuad } from './planStyle.ts'
 import { RoomEdgeLengths, RoomLabel, RoomShape } from './RoomShape.tsx'
 import { SuggestionOverlay } from './SuggestionOverlay.tsx'
@@ -96,7 +97,8 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   const [ownView, setOwnView] = useState<PlanView | null>(null)
   const manualView = sharedView ? sharedView.value : ownView
   const setManualView = sharedView ? sharedView.set : setOwnView
-  const [imgOpacity, setImgOpacity] = useState(0.6)
+  // Shared by every Plan2D of this project (both compare panes) and remembered in localStorage
+  const [planPrefs, setPlanPrefs] = usePlanImagePrefs(project.id)
   const [showDims, setShowDims] = useState(true)
   const issues = useMemo(() => furnitureIssues(scenario), [scenario])
   // Furniture footprints that room labels try not to cover (rugs may be covered)
@@ -196,7 +198,9 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
           <Layer>
             <Background fill="#f8fafc" />
             <Grid />
-            {img && <KImage name="bg" image={img} width={imgW} height={imgH} opacity={imgOpacity} />}
+            {img && planPrefs.visible && (
+              <KImage name="bg" image={img} width={imgW} height={imgH} opacity={planPrefs.opacity} />
+            )}
           </Layer>
           <Layer>
             {scenario.rooms.map((r) => (
@@ -309,6 +313,16 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
       )}
       <div className="plan2d-overlay">
         {project.planImage && (
+          <button
+            className={planPrefs.visible ? 'active' : ''}
+            aria-pressed={planPrefs.visible}
+            onClick={() => setPlanPrefs({ visible: !planPrefs.visible })}
+            title="Vis den opplastede plantegningen under det tegnede. Skru av for å se bare vegger, rom og møbler."
+          >
+            Plantegning
+          </button>
+        )}
+        {project.planImage && planPrefs.visible && (
           <label title="Gjennomsiktighet på plantegningen">
             Tegning
             <input
@@ -316,8 +330,8 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
               min={0}
               max={1}
               step={0.05}
-              value={imgOpacity}
-              onChange={(e) => setImgOpacity(+e.target.value)}
+              value={planPrefs.opacity}
+              onChange={(e) => setPlanPrefs({ opacity: +e.target.value })}
             />
           </label>
         )}
