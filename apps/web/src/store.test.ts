@@ -244,7 +244,7 @@ describe('the selection', () => {
     const wall = addWall()
     state().select({ kind: 'wall', id: wall.id })
     undo()
-    expect(state().selection).toBeNull()
+    expect(state().selection).toEqual([])
   })
 
   it('is kept when undo leaves what was selected in place', () => {
@@ -252,7 +252,7 @@ describe('the selection', () => {
     state().select({ kind: 'wall', id: wall.id })
     rename('A')
     undo()
-    expect(state().selection).toEqual({ kind: 'wall', id: wall.id })
+    expect(state().selection).toEqual([{ kind: 'wall', id: wall.id }])
   })
 
   it('is cleared when undo goes back to a variant without it', () => {
@@ -261,18 +261,154 @@ describe('the selection', () => {
     rename('A')
     state().select({ kind: 'wall', id: wall.id })
     undo()
-    expect(state().selection).toEqual({ kind: 'wall', id: wall.id })
+    expect(state().selection).toEqual([{ kind: 'wall', id: wall.id }])
     undo()
     undo()
     expect(project().scenarios).toHaveLength(1)
-    expect(state().selection).toBeNull()
+    expect(state().selection).toEqual([])
   })
 
   it('is cleared when what was selected is removed by something else', () => {
     const wall = addWall()
     state().select({ kind: 'wall', id: wall.id })
     state().updateScenario((s) => ({ ...s, walls: [] }))
-    expect(state().selection).toBeNull()
+    expect(state().selection).toEqual([])
+  })
+})
+
+describe('selecting several things', () => {
+  const furnish = (x: number) => {
+    state().addFurniture('sofa-3', { x, y: 2 }, { snap: false })
+    return scenario().furniture.at(-1)!
+  }
+  const item = (kind: 'wall' | 'furniture' | 'opening', id: string) => ({ kind, id })
+
+  it('toggles with Shift and replaces without it', () => {
+    const a = furnish(1)
+    const b = furnish(4)
+    const wall = addWall()
+    state().select(item('furniture', a.id))
+    state().pick(item('furniture', b.id), true)
+    state().pick(item('wall', wall.id), true)
+    expect(state().selection).toEqual([item('furniture', a.id), item('furniture', b.id), item('wall', wall.id)])
+    state().pick(item('furniture', a.id), true)
+    expect(state().selection).toEqual([item('furniture', b.id), item('wall', wall.id)])
+    state().pick(item('furniture', a.id), false)
+    expect(state().selection).toEqual([item('furniture', a.id)])
+  })
+
+  it('adds a rectangle selection to what is selected', () => {
+    const a = furnish(1)
+    const b = furnish(4)
+    state().select(item('furniture', a.id))
+    state().setSelection([item('furniture', a.id), item('furniture', b.id)], true)
+    expect(state().selection).toEqual([item('furniture', a.id), item('furniture', b.id)])
+    state().setSelection([item('furniture', b.id)])
+    expect(state().selection).toEqual([item('furniture', b.id)])
+  })
+
+  it('deletes everything selected in one undo step, walls with their openings', () => {
+    const a = furnish(1)
+    const b = furnish(4)
+    const c = furnish(7)
+    const wall = addWall()
+    state().addOpening('door', wall.id, 1)
+    const keep = addWall(5)
+    state().setSelection([item('furniture', a.id), item('furniture', b.id), item('wall', wall.id)])
+    const before = steps()
+    state().deleteSelected()
+    expect(scenario().furniture.map((f) => f.id)).toEqual([c.id])
+    expect(scenario().walls.map((w) => w.id)).toEqual([keep.id])
+    expect(scenario().openings).toEqual([])
+    expect(state().selection).toEqual([])
+    expect(steps()).toBe(before + 1)
+  })
+
+  it('duplicates the selected furniture and openings and selects the copies', () => {
+    const a = furnish(1)
+    const b = furnish(4)
+    const wall = state().addWall({ x: 0, y: 0 }, { x: 5, y: 0 })
+    state().addOpening('window', wall.id, 1)
+    const o = scenario().openings[0]!
+    state().setSelection([
+      item('furniture', a.id),
+      item('furniture', b.id),
+      item('opening', o.id),
+      item('wall', wall.id),
+    ])
+    const before = steps()
+    state().duplicateSelected()
+    expect(steps()).toBe(before + 1)
+    const copies = scenario().furniture.slice(2)
+    expect(copies.map((f) => [f.x, f.y])).toEqual([
+      [a.x + 0.3, a.y + 0.3],
+      [b.x + 0.3, b.y + 0.3],
+    ])
+    const oc = scenario().openings[1]!
+    expect(oc.wallId).toBe(wall.id)
+    expect(oc.offset).toBeCloseTo(o.offset + o.width + 0.1)
+    expect(state().selection).toEqual([...copies.map((f) => item('furniture', f.id)), item('opening', oc.id)])
+  })
+
+  it('turns every selected furniture item about its own centre, in one step', () => {
+    const a = furnish(1)
+    const b = furnish(4)
+    state().setSelection([item('furniture', a.id), item('furniture', b.id)])
+    const before = steps()
+    state().rotateSelectedFurniture(-90)
+    expect(scenario().furniture.map((f) => [f.x, f.rotation])).toEqual([
+      [a.x, 270],
+      [b.x, 270],
+    ])
+    expect(steps()).toBe(before + 1)
+  })
+
+  it('moves furniture together from where the drag started', () => {
+    const a = furnish(1)
+    const b = furnish(4)
+    const base = [a, b]
+    beginGesture()
+    state().moveFurnitureGroup(base, { x: 0.5, y: 0 })
+    state().moveFurnitureGroup(base, { x: 1, y: 1 })
+    endGesture()
+    expect(scenario().furniture.map((f) => [f.x, f.y])).toEqual([
+      [a.x + 1, 3],
+      [b.x + 1, 3],
+    ])
+    undo()
+    expect(scenario().furniture.map((f) => f.x)).toEqual([a.x, b.x])
+  })
+
+  it('copies the selected furniture into another variant', () => {
+    const first = project().activeScenarioId
+    state().duplicateScenario('Forslag')
+    const other = project().activeScenarioId
+    state().setActiveScenario(first)
+    const a = furnish(1)
+    addWall()
+    state().setSelection([item('furniture', a.id), item('wall', scenario().walls[0]!.id)])
+    expect(state().copySelectedFurnitureTo(other)).toBe(1)
+    const target = project().scenarios.find((s) => s.id === other)!
+    expect(target.furniture).toHaveLength(1)
+    expect(target.furniture[0]!.id).not.toBe(a.id)
+    expect(project().activeScenarioId).toBe(first)
+    expect(state().selection).toHaveLength(2)
+  })
+
+  it('clears all of it with Escape', () => {
+    const a = furnish(1)
+    const b = furnish(4)
+    state().setSelection([item('furniture', a.id), item('furniture', b.id)])
+    state().escape()
+    expect(state().selection).toEqual([])
+  })
+
+  it('drops only the items that undo removes', () => {
+    const a = furnish(1)
+    const b = furnish(4)
+    state().setSelection([item('furniture', a.id), item('furniture', b.id)])
+    undo()
+    expect(state().selection).toEqual([item('furniture', a.id)])
   })
 })
 
@@ -321,7 +457,7 @@ describe('escape', () => {
     state().setTool('wall')
     state().select({ kind: 'wall', id: wallId() })
     state().escape()
-    expect(state().selection).toBeNull()
+    expect(state().selection).toEqual([])
     expect(state().tool).toBe('wall')
   })
 
@@ -340,7 +476,7 @@ describe('escape', () => {
     state().setDrawing(true)
     state().escape()
     expect(state().tool).toBe('select')
-    expect(state().selection).toEqual({ kind: 'wall', id: wallId() })
+    expect(state().selection).toEqual([{ kind: 'wall', id: wallId() }])
   })
 
   it('is not part of the undo history', () => {
@@ -348,7 +484,7 @@ describe('escape', () => {
     state().select({ kind: 'wall', id: wallId() })
     const before = steps()
     state().escape()
-    expect(state().selection).toBeNull()
+    expect(state().selection).toEqual([])
     expect(steps()).toBe(before)
   })
 })

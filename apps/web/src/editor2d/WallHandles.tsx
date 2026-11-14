@@ -130,7 +130,11 @@ export function WallBody({
       draggable
       onMouseEnter={(e) => setCursor(e, 'move')}
       onMouseLeave={(e) => setCursor(e, '')}
-      onClick={(e) => (e.cancelBubble = true)}
+      onClick={(e) => {
+        e.cancelBubble = true
+        // It lies over the selected wall, so it takes the Shift+click that toggles the wall out
+        if (e.evt.shiftKey) useStore.getState().pick({ kind: 'wall', id: wall.id }, true)
+      }}
       onDragStart={(e) => {
         const from = pointerOf(e)
         if (!from) return

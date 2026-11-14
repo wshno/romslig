@@ -68,7 +68,8 @@ export function wallQuad(
 }
 
 export const HINTS: Record<string, string> = {
-  select: 'Klikk for å velge. Dra for å panorere, scroll for å zoome.',
+  select:
+    'Klikk for å velge, Shift+klikk for å velge flere, Shift+dra for å velge alt i et område. Dra for å panorere, scroll for å zoome.',
   wall: 'Klikk for å starte/fortsette vegg. Skriv lengden (f.eks. 3,2) og trykk Enter. Dobbeltklikk/Esc avslutter. Shift = fri vinkel, Alt = uten rutenett.',
   door: 'Klikk på en vegg for å sette inn en dør.',
   window: 'Klikk på en vegg for å sette inn et vindu.',

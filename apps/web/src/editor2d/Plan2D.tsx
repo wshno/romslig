@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Konva from 'konva'
-import { Circle, Group, Image as KImage, Layer, Line, Stage } from 'react-konva'
+import { Circle, Group, Image as KImage, Layer, Line, Rect, Stage } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import {
   add,
@@ -16,9 +16,12 @@ import {
   RUN_INFO,
   sub,
   type Scenario,
+  type Vec2,
 } from '@romslig/shared'
 import { api } from '../api.ts'
 import { activeScenario, useStore } from '../store.ts'
+import { isSelected, NO_SELECTION, singleSelected } from '../selection.ts'
+import { boxFrom, itemsInBox } from './marquee.ts'
 import { Furniture2D } from './Furniture2D.tsx'
 import { Installations2D } from './Installations2D.tsx'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
@@ -87,10 +90,11 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   const runKind = useStore((s) => s.runKind)
   const showInstallations = useStore((s) => s.showInstallations)
   const tool = readOnly ? 'select' : storeTool
-  const selection = readOnly ? null : storeSelection
+  const selection = readOnly ? NO_SELECTION : storeSelection
+  const single = singleSelected(selection)
   const suggestion = readOnly ? null : storeSuggestion
   const interactive = !readOnly && tool === 'select'
-  const { select, setInstallationSettings } = useStore.getState()
+  const { pick, setInstallationSettings } = useStore.getState()
 
   const img = useHtmlImage(
     project.planImage ? `${api.planUrl(project.id)}?v=${project.createdAt}-${project.planImage.file}` : null,
@@ -166,7 +170,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
     setManualView({ scale: ns, x: pointer.x - world.x * ns, y: pointer.y - world.y * ns })
   }
 
-  const selectedWall = selection?.kind === 'wall' ? walls.find((w) => w.id === selection.id) : undefined
+  const selectedWall = single?.kind === 'wall' ? walls.find((w) => w.id === single.id) : undefined
   /** How far the selected wall has been moved while its body is dragged. */
   const [wallMoved, setWallMoved] = useState<number | null>(null)
   /** The opening being dragged, with the wall it lands on (highlighted) and its gap to the nearer end. */
@@ -176,6 +180,40 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   const draggedOpeningGap =
     draggedOpening && draggedOpeningWall ? openingEndGap(draggedOpening, draggedOpeningWall) : null
   const crosshair = tool !== 'select'
+
+  /**
+   * The selection rectangle: Shift + drag from empty space (the background or a room) with Velg. A
+   * plain drag still pans. It catches what lies wholly inside (itemsInBox) and adds it to the
+   * selection. Followed on the window, so it ends even when released off the plan.
+   */
+  const [marquee, setMarquee] = useState<{ a: Vec2; b: Vec2 } | null>(null)
+  const marqueeRef = useRef(false)
+  const startMarquee = (e: KonvaEventObject<MouseEvent>) => {
+    const stage = stageRef.current
+    const a = stage?.getRelativePointerPosition()
+    if (!stage || !a) return
+    marqueeRef.current = true
+    const startScreen = { x: e.evt.clientX, y: e.evt.clientY }
+    let b = a
+    const move = (ev: MouseEvent) => {
+      stage.setPointersPositions(ev)
+      b = stage.getRelativePointerPosition() ?? b
+      setMarquee({ a, b })
+    }
+    const up = (ev: MouseEvent) => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      marqueeRef.current = false
+      setMarquee(null)
+      // A Shift+click without a drag is just a click (toggles a room, or does nothing on the background)
+      if (Math.hypot(ev.clientX - startScreen.x, ev.clientY - startScreen.y) < 4) return
+      const { project: p, showInstallations: installations } = useStore.getState()
+      if (!p) return
+      useStore.getState().setSelection(itemsInBox(activeScenario(p), boxFrom(a, b), { installations }), true)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
 
   return (
     <div
@@ -206,9 +244,14 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
           scaleX={view.scale}
           scaleY={view.scale}
           draggable
-          onMouseDown={(e) => (lastButtonRef.current = e.evt.button)}
+          onMouseDown={(e) => {
+            lastButtonRef.current = e.evt.button
+            const empty = e.target === stageRef.current || ['bg', 'room'].includes(e.target.name())
+            if (interactive && e.evt.button === 0 && e.evt.shiftKey && empty) startMarquee(e)
+          }}
           onDragStart={(e) => {
-            if (e.target === stageRef.current && tool !== 'select' && lastButtonRef.current === 0) e.target.stopDrag()
+            if (e.target !== stageRef.current || lastButtonRef.current !== 0) return
+            if (tool !== 'select' || marqueeRef.current) e.target.stopDrag()
           }}
           onDragEnd={(e) => {
             if (e.target === stageRef.current) setManualView({ scale: view.scale, x: e.target.x(), y: e.target.y() })
@@ -231,21 +274,21 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
           </Layer>
           <Layer>
             {scenario.rooms.map((r) => (
-              <RoomShape key={r.id} room={r} selected={selection?.id === r.id} interactive={interactive} />
+              <RoomShape key={r.id} room={r} selected={isSelected(selection, r.id)} interactive={interactive} />
             ))}
             {walls.map((w) => (
               <Line
                 key={w.id}
                 points={wallQuad(w, walls)}
                 closed
-                fill={wallFill(w, selection?.id === w.id)}
+                fill={wallFill(w, isSelected(selection, w.id))}
                 opacity={0.9}
                 hitStrokeWidth={8}
                 strokeScaleEnabled={false}
                 onClick={(e) => {
                   if (!interactive) return
                   e.cancelBubble = true
-                  select({ kind: 'wall', id: w.id })
+                  pick({ kind: 'wall', id: w.id }, e.evt.shiftKey)
                 }}
               />
             ))}
@@ -269,9 +312,10 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                   o={o}
                   wall={w}
                   scale={scale}
-                  selected={selection?.id === o.id}
+                  selected={isSelected(selection, o.id)}
+                  movable={single?.id === o.id}
                   interactive={interactive}
-                  onSelect={() => select({ kind: 'opening', id: o.id })}
+                  onSelect={(additive) => pick({ kind: 'opening', id: o.id }, additive)}
                   onDragging={(dragging) => setDraggedOpeningId(dragging ? o.id : null)}
                 />
               ) : null
@@ -281,7 +325,8 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                 key={f.id}
                 item={f}
                 issues={issues.get(f.id)}
-                selected={selection?.id === f.id}
+                selected={isSelected(selection, f.id)}
+                alone={single?.id === f.id}
                 interactive={interactive}
                 scale={scale}
                 shiftRef={shiftRef}
@@ -391,6 +436,19 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                   />
                 )}
               </Group>
+            )}
+            {marquee && (
+              <Rect
+                {...(({ x0, y0, x1, y1 }) => ({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 }))(
+                  boxFrom(marquee.a, marquee.b),
+                )}
+                fill="rgba(37, 99, 235, 0.08)"
+                stroke="#2563eb"
+                strokeWidth={1}
+                dash={[4, 3]}
+                strokeScaleEnabled={false}
+                listening={false}
+              />
             )}
             {crosshair && cursor && (
               <Circle x={cursor.p.x} y={cursor.p.y} radius={px(5)} fill={SNAP_COLORS[cursor.kind]} listening={false} />

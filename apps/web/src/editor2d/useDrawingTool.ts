@@ -202,7 +202,8 @@ export function useDrawingTool({
     const { p } = resolve(raw)
     switch (tool) {
       case 'select':
-        if (e.target === e.target.getStage() || e.target.name() === 'bg') select(null)
+        // A click on empty space lets go of the selection; with Shift (adding to it) it keeps it
+        if ((e.target === e.target.getStage() || e.target.name() === 'bg') && !e.evt.shiftKey) select(null)
         break
       case 'wall': {
         // With a length typed, a click places the wall at that length toward the click

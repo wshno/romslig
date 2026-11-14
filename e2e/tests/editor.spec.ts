@@ -231,6 +231,63 @@ test.describe('editor', () => {
     }
   })
 
+  test('selects two pieces of furniture with Shift+click or a rectangle, and deletes both', async ({ page }) => {
+    const id = await createProject(page, projectName('flervalg'))
+    try {
+      await page.getByRole('button', { name: '2D', exact: true }).click()
+      const click = await drawing(page)
+      const stage = page.locator('.plan2d .konvajs-content')
+      const box = (await stage.boundingBox())!
+      const at = (dx: number, dy: number) => ({ x: box.x + box.width / 2 + dx, y: box.y + box.height / 2 + dy })
+      const summary = page.locator('.inspector .selection-summary')
+
+      // Two pieces dragged from the catalog into the drawing, 300 px apart (no walls: no snapping)
+      await page.getByRole('button', { name: 'Møbler', exact: true }).click()
+      const drop = async (search: string, name: string, dx: number) => {
+        await page.getByPlaceholder('Søk…').fill(search)
+        await page
+          .locator('.catalog-list li')
+          .filter({ hasText: name })
+          .getByRole('button')
+          .dragTo(stage, { targetPosition: { x: box.width / 2 + dx, y: box.height / 2 } })
+      }
+      await drop('sofa, 3', 'Sofa, 3-seter', -150)
+      await drop('spisebord, 4', 'Spisebord, 4 pers.', 150)
+      await saved(page)
+      await expect.poll(async () => (await stored(page, id)).scenarios[0]!.furniture.length).toBe(2)
+
+      // A click on empty space lets go (and takes the focus off the search field); Shift+click picks both
+      await click(0, -200)
+      await page.keyboard.down('Shift')
+      await click(-150, 0)
+      await click(150, 0)
+      await page.keyboard.up('Shift')
+      await expect(summary).toHaveText('2 valgt: 2 møbler')
+
+      // Escape lets go of both; Shift + drag around them selects both again
+      await page.keyboard.press('Escape')
+      await expect(summary).toHaveCount(0)
+      const from = at(-320, -150)
+      const to = at(320, 150)
+      await page.keyboard.down('Shift')
+      await page.mouse.move(from.x, from.y)
+      await page.mouse.down()
+      await page.mouse.move(to.x, to.y, { steps: 8 })
+      await page.mouse.up()
+      await page.keyboard.up('Shift')
+      await expect(summary).toHaveText('2 valgt: 2 møbler')
+
+      // Delete removes both, in the stored project too
+      await page.keyboard.press('Delete')
+      await expect(summary).toHaveCount(0)
+      await saved(page)
+      await expect.poll(async () => (await stored(page, id)).scenarios[0]!.furniture.length).toBe(0)
+      await saved(page)
+    } finally {
+      await removeProject(page.request, id)
+    }
+  })
+
   test('snaps wall corners to the 10 cm grid, and Alt turns that off', async ({ page }) => {
     const id = await createProject(page, projectName('rutenett'))
     try {

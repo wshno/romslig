@@ -8,7 +8,8 @@ import {
   type Vec2,
   type Wall,
 } from '@romslig/shared'
-import { beginGesture, endGesture, useStore, type Selection } from '../store.ts'
+import { beginGesture, endGesture, useStore } from '../store.ts'
+import { isSelected, singleSelected, type Selection, type SelectionKind } from '../selection.ts'
 import { CATEGORY_COLORS, fixturePlacement } from './installationUtils.ts'
 
 const RUN_DASH: Record<string, number[] | undefined> = {
@@ -27,13 +28,15 @@ interface Props {
 
 /** Lowered ceilings, runs (pipes, ducts, cables) and fixtures in plan view. */
 export function Installations2D({ scenario, scale, interactive, selection }: Props) {
-  const { select, updateFixture, updateRun } = useStore.getState()
+  const { pick, updateFixture, updateRun } = useStore.getState()
   const px = (n: number) => n / scale
-  const selectable = (kind: NonNullable<Selection>['kind'], id: string) => ({
-    onMouseDown: (e: { cancelBubble: boolean }) => {
+  // Only the one selected thing gets drag handles
+  const alone = singleSelected(selection)?.id
+  const selectable = (kind: SelectionKind, id: string) => ({
+    onMouseDown: (e: { cancelBubble: boolean; evt: MouseEvent }) => {
       if (!interactive) return
       e.cancelBubble = true
-      select({ kind, id })
+      pick({ kind, id }, e.evt.shiftKey)
     },
     onClick: (e: { cancelBubble: boolean }) => {
       if (interactive) e.cancelBubble = true
@@ -43,7 +46,7 @@ export function Installations2D({ scenario, scale, interactive, selection }: Pro
   return (
     <Group>
       {scenario.loweredCeilings.map((c) => {
-        const sel = selection?.id === c.id
+        const sel = isSelected(selection, c.id)
         const centre = polygonCentroid(c.polygon)
         return (
           <Group key={c.id} {...selectable('ceiling', c.id)}>
@@ -73,7 +76,7 @@ export function Installations2D({ scenario, scale, interactive, selection }: Pro
 
       {scenario.runs.map((r) => {
         const info = RUN_INFO[r.kind]
-        const sel = selection?.id === r.id
+        const sel = isSelected(selection, r.id)
         const width = Math.max(2, Math.min(14, r.diameter * scale))
         return (
           <Group key={r.id}>
@@ -91,7 +94,7 @@ export function Installations2D({ scenario, scale, interactive, selection }: Pro
               shadowBlur={sel ? 6 : 0}
               {...selectable('run', r.id)}
             />
-            {sel &&
+            {alone === r.id &&
               interactive &&
               r.points
                 .map((p, i) => ({ p, i, key: `${r.id}-v${i}` }))
@@ -131,10 +134,11 @@ export function Installations2D({ scenario, scale, interactive, selection }: Pro
           key={fx.id}
           fx={fx}
           scale={scale}
-          selected={selection?.id === fx.id}
+          selected={isSelected(selection, fx.id)}
+          movable={alone === fx.id}
           interactive={interactive}
           walls={scenario.walls}
-          onSelect={() => select({ kind: 'fixture', id: fx.id })}
+          onSelect={(additive) => pick({ kind: 'fixture', id: fx.id }, additive)}
           onMove={(point, wallId) => updateFixture(fx.id, { x: point.x, y: point.y, wallId })}
         />
       ))}
@@ -146,9 +150,11 @@ function FixtureSymbol(props: {
   fx: Fixture
   scale: number
   selected: boolean
+  /** It can be dragged: it is the only thing selected. */
+  movable: boolean
   interactive: boolean
   walls: Wall[]
-  onSelect(): void
+  onSelect(additive: boolean): void
   onMove(p: Vec2, wallId: string | null): void
 }) {
   const { fx, scale, selected } = props
@@ -160,11 +166,11 @@ function FixtureSymbol(props: {
     <Group
       x={fx.x}
       y={fx.y}
-      draggable={props.interactive && selected}
+      draggable={props.interactive && props.movable}
       onMouseDown={(e) => {
         if (!props.interactive) return
         e.cancelBubble = true
-        props.onSelect()
+        props.onSelect(e.evt.shiftKey)
       }}
       onClick={(e) => {
         if (props.interactive) e.cancelBubble = true
