@@ -1,8 +1,26 @@
+import { useRef } from 'react'
 import { Arc, Group, Line, Rect, Text } from 'react-konva'
-import { add, clampOpening, mul, wallDir, wallLength, type Opening, type Wall } from '@romslig/shared'
-import { beginGesture, endGesture } from '../store.ts'
+import type Konva from 'konva'
+import type { KonvaEventObject } from 'konva/lib/Node'
+import {
+  add,
+  clampOpening,
+  moveOpening,
+  mul,
+  openingCentre,
+  sub,
+  wallDir,
+  type Opening,
+  type Scenario,
+  type Vec2,
+  type Wall,
+} from '@romslig/shared'
+import { activeScenario, beginGesture, endGesture, useStore } from '../store.ts'
 import { fmtM } from '../theme.ts'
-import { OPENING_COLORS } from './planStyle.ts'
+import { OPENING_COLORS, SNAP_GRID } from './planStyle.ts'
+
+/** How close (screen px) the pointer has to come to another wall for a dragged opening to go over to it. */
+const SWITCH_WALL_PX = 20
 
 export function OpeningShape(props: {
   o: Opening
@@ -11,9 +29,33 @@ export function OpeningShape(props: {
   selected: boolean
   interactive: boolean
   onSelect(): void
-  onMove(offset: number): void
+  /** Called with true when a drag starts and false when it ends. */
+  onDragging(dragging: boolean): void
 }) {
   const { o, wall, scale, selected } = props
+  // The variant as it was when the drag started, and where on the opening it was grabbed
+  const dragRef = useRef<{ base: Scenario; grab: Vec2 } | null>(null)
+  const pointer = (n: Konva.Node) => n.getStage()?.getRelativePointerPosition() ?? null
+
+  // Every move is applied to the variant from drag start, so the result does not depend on the path
+  const onDragMove = (e: KonvaEventObject<DragEvent>) => {
+    const n = e.target
+    const p = pointer(n)
+    if (!dragRef.current || !p) return
+    const { base, grab } = dragRef.current
+    const next = moveOpening(base, o.id, p, {
+      grab,
+      snapStep: e.evt.altKey ? undefined : SNAP_GRID,
+      switchDist: SWITCH_WALL_PX / scale,
+    })
+    const m = next.openings.find((x) => x.id === o.id)!
+    const w = next.walls.find((x) => x.id === m.wallId)!
+    // Konva moved the node with the pointer; put it where the opening lands instead
+    const d = wallDir(w)
+    n.position(add(w.a, mul(d, clampOpening(m, w).start)))
+    n.rotation((Math.atan2(d.y, d.x) * 180) / Math.PI)
+    useStore.getState().updateOpening(o.id, { wallId: m.wallId, offset: m.offset, flip: m.flip })
+  }
   const { start, end } = clampOpening(o, wall)
   const d = wallDir(wall)
   const angle = (Math.atan2(d.y, d.x) * 180) / Math.PI
@@ -33,21 +75,20 @@ export function OpeningShape(props: {
         e.cancelBubble = true
         props.onSelect()
       }}
-      onDragStart={beginGesture}
-      onDragMove={(e) => {
-        const n = e.target
-        const pos = { x: n.x(), y: n.y() }
-        // pos is the start corner; project centre onto the wall
-        const centre = add(pos, mul(d, w / 2))
-        const off = Math.max(
-          w / 2,
-          Math.min(wallLength(wall) - w / 2, (centre.x - wall.a.x) * d.x + (centre.y - wall.a.y) * d.y),
-        )
-        const snapped = add(wall.a, mul(d, off - w / 2))
-        n.position(snapped)
-        props.onMove(off)
+      onDragStart={(e) => {
+        const project = useStore.getState().project
+        const p = pointer(e.target)
+        if (!project || !p) return
+        beginGesture()
+        dragRef.current = { base: activeScenario(project), grab: sub(p, openingCentre(o, wall)) }
+        props.onDragging(true)
       }}
-      onDragEnd={endGesture}
+      onDragMove={onDragMove}
+      onDragEnd={() => {
+        dragRef.current = null
+        endGesture()
+        props.onDragging(false)
+      }}
     >
       <Rect
         x={0}
