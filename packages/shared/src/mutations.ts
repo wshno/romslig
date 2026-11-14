@@ -18,7 +18,7 @@ import {
 } from './geometry.ts'
 import { roomAt } from './furniture.ts'
 import { WALL_JOIN_TOLERANCE } from './walls.ts'
-import type { Opening, Room, Scenario, Vec2, Wall } from './model.ts'
+import { newId, type Opening, type Room, type Scenario, type Vec2, type Wall } from './model.ts'
 
 /**
  * Edits to a variant that keep it consistent: connected walls stay connected, openings and
@@ -33,6 +33,7 @@ const JOIN_EPS = WALL_JOIN_TOLERANCE
 
 export type WallEnd = 'a' | 'b'
 const ENDS: readonly WallEnd[] = ['a', 'b']
+const leftOf = (d: Vec2): Vec2 => ({ x: -d.y, y: d.x })
 type Segment = Pick<Wall, 'a' | 'b'>
 
 // ---------------------------------------------------------------------------
@@ -222,20 +223,30 @@ const pointAlong = (g: Segment, along: number): Vec2 =>
   add(g.a, mul(wallDir(g), Math.max(0, Math.min(wallLength(g), along))))
 
 interface Attachment {
-  /** Endpoints that sit in the dragged corner (the wall's own end included). */
-  corner: { id: string; end: WallEnd }[]
+  /** Endpoints that sit in a moving corner (the wall's own end included); `corner` is its index in the list of moving ends. */
+  corner: { id: string; end: WallEnd; corner: number }[]
   /** Endpoints that butt against the side of a wall that moves, in the order they were found. */
   butting: { id: string; end: WallEnd; hostId: string; along: number }[]
 }
 
-function attachments(s: Scenario, wallId: string, end: WallEnd): Attachment | null {
-  const wall = s.walls.find((w) => w.id === wallId)
-  if (!wall) return null
-  const from = wall[end]
-  const corner = s.walls.flatMap((w) =>
-    ENDS.filter((e) => (w.id === wallId ? e === end : dist(w[e], from) < JOIN_EPS)).map((e) => ({ id: w.id, end: e })),
-  )
-  const taken = new Set(corner.map((c) => `${c.id}:${c.end}`))
+/** What comes along when these wall ends move: the walls in each corner, and the walls standing against any wall that moves. */
+function attachmentsOf(s: Scenario, ends: { wallId: string; end: WallEnd }[]): Attachment | null {
+  const own = ends.map(({ wallId }) => s.walls.find((w) => w.id === wallId))
+  if (own.some((w) => !w)) return null
+  const corner: Attachment['corner'] = []
+  const taken = new Set<string>()
+  ends.forEach(({ wallId, end }, i) => {
+    const from = own[i]![end]
+    for (const w of s.walls)
+      for (const e of ENDS) {
+        const key = `${w.id}:${e}`
+        if (taken.has(key)) continue
+        const moving = ends.find((x) => x.wallId === w.id && x.end === e)
+        if (moving ? moving.wallId !== wallId || moving.end !== end : dist(w[e], from) >= JOIN_EPS) continue
+        taken.add(key)
+        corner.push({ id: w.id, end: e, corner: i })
+      }
+  })
   const butting: Attachment['butting'] = []
   const queue = [...new Set(corner.map((c) => c.id))]
   const queued = new Set(queue)
@@ -263,10 +274,22 @@ function attachments(s: Scenario, wallId: string, end: WallEnd): Attachment | nu
   return { corner, butting }
 }
 
+const attachments = (s: Scenario, wallId: string, end: WallEnd) => attachmentsOf(s, [{ wallId, end }])
+const bothEnds = (s: Scenario, wallId: string) =>
+  attachmentsOf(
+    s,
+    [...ENDS].map((end) => ({ wallId, end })),
+  )
+const movedIds = (at: Attachment | null) => (at ? [...new Set([...at.corner, ...at.butting].map((x) => x.id))] : [])
+
 /** The walls that change when this end of the wall is moved (the wall itself included). */
 export function wallsMovedWith(s: Scenario, wallId: string, end: WallEnd): string[] {
-  const at = attachments(s, wallId, end)
-  return at ? [...new Set([...at.corner, ...at.butting].map((x) => x.id))] : []
+  return movedIds(attachments(s, wallId, end))
+}
+
+/** The walls that change when the whole wall is moved with moveWall (the wall itself included). */
+export function wallsMovedWithWall(s: Scenario, wallId: string): string[] {
+  return movedIds(bothEnds(s, wallId))
 }
 
 /**
@@ -283,24 +306,23 @@ function buttAgainst(guest: Segment, end: WallEnd, far: Vec2, host: Segment, now
 }
 
 /**
- * Moves one end of a wall. Walls that meet it in that corner come along, and walls that stand
- * against the side of a wall that moves are made longer or shorter so they keep touching it.
- * Openings and wall-mounted fixtures keep their distance from the end of their wall that stands
- * still, so a door does not slide along the wall when the other end is dragged. Rooms follow (see
- * followWalls).
- *
- * Meant to be applied to the scenario as it was when the drag started, with the pointer's current
- * position: the result does not depend on the path the pointer took.
+ * Moves every corner of `at` to its target (`targets[i]` for corner i), lets the walls standing
+ * against a moving wall follow, and carries openings, wall-mounted fixtures and rooms along.
+ * `alongOf` overrides, per wall, where a point `along` metres from its start ends up (by default
+ * it keeps its distance from the end that stands still, see alongAfter).
  */
-export function moveWallEndpoint(s: Scenario, wallId: string, end: WallEnd, to: Vec2): Scenario {
-  const at = attachments(s, wallId, end)
-  if (!at) return s
+function moveCorners(
+  s: Scenario,
+  at: Attachment,
+  targets: Vec2[],
+  alongOf: ReadonlyMap<string, (along: number) => number> = new Map(),
+): Scenario {
   const original = new Map(s.walls.map((w) => [w.id, w]))
   const moved = new Map<string, Segment>()
   const current = (id: string): Segment => moved.get(id) ?? original.get(id)!
   const setEnd = (id: string, e: WallEnd, p: Vec2) => moved.set(id, { ...current(id), [e]: p })
 
-  for (const c of at.corner) setEnd(c.id, c.end, to)
+  for (const c of at.corner) setEnd(c.id, c.end, targets[c.corner]!)
   // A wall can be both host and guest, so repeat until every guest sits on its host
   for (let round = 0; round < 8; round++) {
     let changed = false
@@ -314,10 +336,12 @@ export function moveWallEndpoint(s: Scenario, wallId: string, end: WallEnd, to: 
     if (!changed) break
   }
 
+  const after = (id: string, g: Segment, along: number) =>
+    alongOf.get(id)?.(along) ?? alongAfter(original.get(id)!, g, along)
   const walls = s.walls.map((w) => (moved.has(w.id) ? { ...w, ...moved.get(w.id)! } : w))
   const openings = s.openings.map((o): Opening => {
     const g = moved.get(o.wallId)
-    return g ? { ...o, offset: alongAfter(original.get(o.wallId)!, g, o.offset) } : o
+    return g ? { ...o, offset: after(o.wallId, g, o.offset) } : o
   })
   const fixtures = s.fixtures.map((x) => {
     const g = x.wallId ? moved.get(x.wallId) : undefined
@@ -327,10 +351,113 @@ export function moveWallEndpoint(s: Scenario, wallId: string, end: WallEnd, to: 
     const rel = sub(x, w.a)
     const newDir = wallDir(g)
     const side = cross(dir, rel)
-    const p = add(add(g.a, mul(newDir, alongAfter(w, g, dot(rel, dir)))), mul({ x: -newDir.y, y: newDir.x }, side))
+    const p = add(add(g.a, mul(newDir, after(w.id, g, dot(rel, dir)))), mul(leftOf(newDir), side))
     return { ...x, x: p.x, y: p.y }
   })
   return followWalls(s.walls, { ...s, walls, openings, fixtures })
+}
+
+/**
+ * Moves one end of a wall. Walls that meet it in that corner come along, and walls that stand
+ * against the side of a wall that moves are made longer or shorter so they keep touching it.
+ * Openings and wall-mounted fixtures keep their distance from the end of their wall that stands
+ * still, so a door does not slide along the wall when the other end is dragged. Rooms follow (see
+ * followWalls).
+ *
+ * Meant to be applied to the scenario as it was when the drag started, with the pointer's current
+ * position: the result does not depend on the path the pointer took.
+ */
+export function moveWallEndpoint(s: Scenario, wallId: string, end: WallEnd, to: Vec2): Scenario {
+  const at = attachments(s, wallId, end)
+  return at ? moveCorners(s, at, [to]) : s
+}
+
+/** The wall whose side (not one of its ends) this end of `wall` stands against, if any. */
+function hostOf(s: Scenario, wall: Wall, end: WallEnd): Wall | undefined {
+  let best: { w: Wall; d: number } | undefined
+  for (const o of s.walls) {
+    if (o.id === wall.id) continue
+    const length = wallLength(o)
+    const c = closestPointOnSegment(wall[end], o.a, o.b)
+    const along = c.t * length
+    if (c.dist > JOIN_EPS || along < JOIN_EPS || length - along < JOIN_EPS) continue
+    if (!best || c.dist < best.d) best = { w: o, d: c.dist }
+  }
+  return best?.w
+}
+
+/**
+ * Moves a wall parallel to itself, `offset` metres along its left normal (positive = to the left
+ * when looking from a to b).
+ * - Walls that meet it in a corner have that end moved along, so they get longer or shorter and
+ *   the corner stays closed.
+ * - Walls that stand against its side (or against the side of a corner wall that changes) are made
+ *   longer or shorter in their own direction so they keep touching it, as in moveWallEndpoint.
+ * - Where an end of the wall stands against the side of another wall, that end slides along the
+ *   other wall's line, so the wall keeps touching it and stays parallel to where it was (moved far
+ *   enough, the end can pass the other wall's end).
+ * - Openings and fixtures on the wall keep their place along it; rooms follow (followWalls).
+ *
+ * Meant to be applied to the scenario as it was when the drag started, like moveWallEndpoint.
+ */
+export function moveWall(s: Scenario, wallId: string, offset: number): Scenario {
+  const w = s.walls.find((x) => x.id === wallId)
+  if (!w || !Number.isFinite(offset) || offset === 0 || wallLength(w) < 1e-9) return s
+  const at = bothEnds(s, wallId)
+  if (!at) return s
+  const dir = wallDir(w)
+  const shift = mul(leftOf(dir), offset)
+  const targets = ENDS.map((end) => {
+    const p = add(w[end], shift)
+    const host = hostOf(s, w, end)
+    const hit = host ? lineIntersection(p, dir, host.a, sub(host.b, host.a)) : null
+    return hit ? add(p, mul(dir, hit.t)) : p
+  })
+  // Things on the wall stay where they were along it, also when its start slid along a host
+  const slid = dot(sub(targets[0]!, add(w.a, shift)), dir)
+  return moveCorners(s, at, targets, new Map([[wallId, (along: number) => along - slid]]))
+}
+
+/**
+ * Splits a wall in two at `at` metres from its end a. The first piece keeps the wall's id (so a
+ * selection stays on it), the second gets `newWallId`; both keep the wall's properties and meet at
+ * the split point. Openings and wall-mounted fixtures go to the piece they are on.
+ *
+ * A split that falls inside an opening is moved to the opening's nearest edge, so a door stays
+ * whole. Nothing changes (the scenario is returned as it was) when that would leave a piece shorter
+ * than MIN_WALL_LENGTH, or when the split still falls inside an opening (overlapping openings).
+ */
+export function splitWall(s: Scenario, wallId: string, at: number, newWallId: string = newId('w_')): Scenario {
+  const w = s.walls.find((x) => x.id === wallId)
+  if (!w || !Number.isFinite(at)) return s
+  const length = wallLength(w)
+  const openings = s.openings.filter((o) => o.wallId === wallId)
+  const inside = (cut: number) =>
+    openings.find((o) => o.offset - o.width / 2 < cut - 1e-6 && o.offset + o.width / 2 > cut + 1e-6)
+  let cut = at
+  const hit = inside(cut)
+  if (hit) {
+    const start = hit.offset - hit.width / 2
+    const end = hit.offset + hit.width / 2
+    cut = cut - start <= end - cut ? start : end
+    if (inside(cut)) return s
+  }
+  if (cut < MIN_WALL_LENGTH || length - cut < MIN_WALL_LENGTH) return s
+
+  const p = pointAlong(w, cut)
+  const dir = wallDir(w)
+  const first: Wall = { ...w, b: p }
+  const second: Wall = { ...w, id: newWallId, a: p }
+  return followWalls(s.walls, {
+    ...s,
+    walls: s.walls.flatMap((x) => (x.id === wallId ? [first, second] : [x])),
+    openings: s.openings.map((o) =>
+      o.wallId === wallId && o.offset > cut ? { ...o, wallId: newWallId, offset: o.offset - cut } : o,
+    ),
+    fixtures: s.fixtures.map((x) =>
+      x.wallId === wallId && dot(sub(x, w.a), dir) > cut ? { ...x, wallId: newWallId } : x,
+    ),
+  })
 }
 
 /** The shortest wall setWallLength makes. */

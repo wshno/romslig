@@ -16,7 +16,7 @@ import { RoomEdgeLengths, RoomShape } from './RoomShape.tsx'
 import { SuggestionOverlay } from './SuggestionOverlay.tsx'
 import { useDrawingTool } from './useDrawingTool.ts'
 import { WallDiff } from './WallDiff.tsx'
-import { WallHandles } from './WallHandles.tsx'
+import { WallBody, WallHandles } from './WallHandles.tsx'
 
 Konva.dragButtons = [0, 1]
 
@@ -124,6 +124,8 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   }
 
   const selectedWall = selection?.kind === 'wall' ? walls.find((w) => w.id === selection.id) : undefined
+  /** How far the selected wall has been moved while its body is dragged. */
+  const [wallMoved, setWallMoved] = useState<number | null>(null)
   const crosshair = tool !== 'select'
 
   return (
@@ -202,6 +204,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                 }}
               />
             ))}
+            {selectedWall && interactive && <WallBody wall={selectedWall} scenario={scenario} onMove={setWallMoved} />}
             {compareWith && <WallDiff current={scenario} other={compareWith} />}
             {scenario.openings.map((o) => {
               const w = walls.find((x) => x.id === o.wallId)
@@ -233,7 +236,15 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
               <Installations2D scenario={scenario} scale={scale} interactive={interactive} selection={selection} />
             )}
             {showDims && scenario.rooms.map((r) => <RoomEdgeLengths key={`dim-${r.id}`} room={r} scale={scale} />)}
-            {selectedWall && <WallHandles wall={selectedWall} scenario={scenario} scale={scale} shiftRef={shiftRef} />}
+            {selectedWall && (
+              <WallHandles
+                wall={selectedWall}
+                scenario={scenario}
+                scale={scale}
+                shiftRef={shiftRef}
+                moved={wallMoved}
+              />
+            )}
             {suggestion && <SuggestionOverlay scale={scale} />}
 
             {/* Tool previews */}

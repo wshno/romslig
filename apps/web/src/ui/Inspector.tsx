@@ -109,6 +109,12 @@ function WallProps({ wall }: { wall: Wall }) {
         onChange={(v) => useStore.getState().setWallLength(wall.id, v)}
       />
       <p className="muted">{n} åpning(er). Lengden endres fra startpunktet; vegger i den andre enden følger med.</p>
+      <button
+        onClick={() => useStore.getState().splitWall(wall.id, wallLength(wall) / 2)}
+        title="Del veggen i to på midten (eller ved kanten av en åpning som står der). Dra i veggen for å flytte den."
+      >
+        Del vegg
+      </button>
       <Num label="Tykkelse" value={wall.thickness} onChange={(v) => update({ thickness: Math.max(0.03, v) })} />
       <Num label="Høyde" value={wall.height} onChange={(v) => update({ height: Math.max(0.5, v) })} />
       <label className="field">
