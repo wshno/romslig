@@ -19,6 +19,6 @@ test('@local-only one user cannot see or open another user\x27s project', async 
     await page.reload()
     await expect(page.locator('.project-name')).toHaveValue(name)
   } finally {
-    await removeProject(page.request, id)
+    await removeProject(page, id)
   }
 })

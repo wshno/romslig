@@ -52,5 +52,5 @@ async function cleanUp(page: Page, name: string, id: string | undefined) {
     const list = res.ok() ? ((await res.json()) as { id: string; name: string }[]) : []
     id = list.find((p) => p.name === name)?.id
   }
-  if (id) await removeProject(page.request, id)
+  if (id) await removeProject(page, id)
 }

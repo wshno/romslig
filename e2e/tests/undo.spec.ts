@@ -34,7 +34,7 @@ test.describe('undo', () => {
       await expect(field).toHaveValue(`${name} med hems`)
       await saved(page)
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 })

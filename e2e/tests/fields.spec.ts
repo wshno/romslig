@@ -22,7 +22,7 @@ test.describe('number fields', () => {
       await page.reload()
       await expect(field).toHaveValue('1.8')
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 })

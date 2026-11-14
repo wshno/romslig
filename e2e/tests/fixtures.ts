@@ -1,6 +1,6 @@
 import { deflateSync } from 'node:zlib'
 
-import { type APIRequestContext, expect, mergeTests, type Page } from '@playwright/test'
+import { expect, mergeTests, type Page } from '@playwright/test'
 import { coverageTest, guardsTest } from '@wshno/playwright-config'
 
 // Specs import test from here, not from @playwright/test. guardsTest (see @wshno/playwright-config) fails
@@ -85,8 +85,22 @@ export async function saved(page: Page) {
   await expect(page.getByText('Lagret', { exact: true })).toBeVisible({ timeout: 10_000 })
 }
 
-/** Removes a project the spec made (deployed envs keep their data between runs). */
-export async function removeProject(request: APIRequestContext, id: string) {
-  const res = await request.delete(`/api/projects/${id}`)
+/**
+ * Removes a project the spec made (deployed envs keep their data between runs).
+ *
+ * If the editor still has a change to save (autosave waits for a quiet moment, then sends a PUT),
+ * that save is let through first: deleting under it makes the PUT answer 404, which the request guard
+ * rightly counts as a failed request. A test that ends right after an edit would otherwise fail now
+ * and then, depending on whether the save got there before the delete.
+ */
+export async function removeProject(page: Page, id: string) {
+  if (!page.isClosed()) {
+    // Not an assertion: this runs in `finally`, where a throw would hide why the test failed. If the
+    // save never finishes, the delete still runs and the guard reports the PUT it breaks.
+    await expect(page.getByText('Lagrer…', { exact: true }))
+      .toHaveCount(0, { timeout: 10_000 })
+      .catch(() => {})
+  }
+  const res = await page.request.delete(`/api/projects/${id}`)
   expect([204, 404]).toContain(res.status())
 }

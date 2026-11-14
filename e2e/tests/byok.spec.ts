@@ -58,6 +58,6 @@ test('the Anthropic key only goes to Anthropic, never to /api', async ({ page })
     expect(ownRequests.length).toBeGreaterThan(3)
     expect((await Promise.all(ownRequests)).filter(Boolean)).toEqual([])
   } finally {
-    await removeProject(page.request, id)
+    await removeProject(page, id)
   }
 })
