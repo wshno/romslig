@@ -16,9 +16,7 @@ test('the project list loads, with the web and API versions in the footer', asyn
 test('the project list is accessible', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Prosjekter' })).toBeVisible()
-  // color-contrast is off until the colours are adjusted (its own round, with before/after screenshots):
-  // a paragraph on the project list falls below 4.5:1.
-  await expectAccessible(page, { disableRules: ['color-contrast'] })
+  await expectAccessible(page)
 })
 
 test('the API answers health without a session, and everything else only behind auth', async ({ page }) => {
