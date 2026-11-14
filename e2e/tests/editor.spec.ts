@@ -181,4 +181,26 @@ test.describe('editor', () => {
       await removeProject(page.request, id)
     }
   })
+
+  test('focus hides the tools and the panel and shows 3D alone, until the panels are shown again', async ({ page }) => {
+    const id = await createProject(page, projectName('fokus'))
+    try {
+      const views = page.locator('.views')
+      const before = (await views.boundingBox())!.width
+      await page.getByRole('button', { name: 'Fokus', exact: true }).click()
+      await expect(page.locator('.toolbar')).toHaveCount(0)
+      await expect(page.locator('.inspector')).toHaveCount(0)
+      await expect(page.locator('.plan2d')).toHaveCount(0)
+      await expect(page.locator('.viewer3d')).toBeVisible()
+      await expect(page.getByRole('button', { name: '3D', exact: true })).toHaveClass(/active/)
+      await expect.poll(async () => (await views.boundingBox())!.width).toBeGreaterThan(before + 300)
+
+      await page.getByRole('button', { name: 'Vis paneler' }).click()
+      await expect(page.locator('.toolbar')).toBeVisible()
+      await expect(page.locator('.inspector')).toBeVisible()
+      await expect(page.getByRole('button', { name: '2D + 3D', exact: true })).toHaveClass(/active/)
+    } finally {
+      await removeProject(page.request, id)
+    }
+  })
 })

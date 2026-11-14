@@ -275,3 +275,35 @@ describe('the selection', () => {
     expect(state().selection).toBeNull()
   })
 })
+
+describe('focus mode', () => {
+  it('shows 3D alone when entered from 2D + 3D, and goes back to it when left', () => {
+    state().setView('split')
+    state().setTool('wall')
+    state().setFocus(true)
+    expect(state()).toMatchObject({ focus: true, view: '3d', tool: 'select' })
+    state().setFocus(false)
+    expect(state()).toMatchObject({ focus: false, view: 'split' })
+  })
+
+  it('keeps 2D or 3D as it is, and keeps a view picked while in focus', () => {
+    state().setView('2d')
+    state().setFocus(true)
+    expect(state().view).toBe('2d')
+    state().setFocus(false)
+    expect(state().view).toBe('2d')
+
+    state().setView('split')
+    state().setFocus(true)
+    state().setView('2d') // picked in focus: leaving keeps it
+    state().setFocus(false)
+    expect(state().view).toBe('2d')
+  })
+
+  it('is not part of the undo history, and ends when another project is opened', () => {
+    state().setFocus(true)
+    expect(steps()).toBe(0)
+    state().load(newProject())
+    expect(state().focus).toBe(false)
+  })
+})
