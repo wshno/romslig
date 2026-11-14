@@ -2,7 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls } from '@react-three/drei'
-import { wallDir, wallLength, wallPieces, type Opening, type Room, type Wall } from '@romslig/shared'
+import {
+  dot,
+  sub,
+  wallDir,
+  wallFootprints,
+  wallLength,
+  wallPieces,
+  type Opening,
+  type Room,
+  type Vec2,
+  type Wall,
+} from '@romslig/shared'
 import { useScenario, useStore } from '../store.ts'
 import { useFurnitureIssues } from '../hooks.ts'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
@@ -45,6 +56,7 @@ export function Viewer3D() {
     const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
     return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, size: Math.max(maxX - minX, maxY - minY, 4) }
   }, [scenario?.walls])
+  const footprints = useMemo(() => wallFootprints(scenario?.walls ?? []), [scenario?.walls])
 
   if (!scenario) return null
   return (
@@ -110,6 +122,7 @@ export function Viewer3D() {
           <WallMesh
             key={w.id}
             wall={w}
+            footprint={footprints.get(w.id)!}
             openings={scenario.openings}
             cutHeight={cutHeight}
             showLoadBearing={showLoadBearing}
@@ -222,27 +235,72 @@ function wallColor(wall: Wall, selected: boolean, showLoadBearing: boolean): str
   return wall.exterior ? '#e7e2da' : '#f5f3ef'
 }
 
+/** The part of a polygon where (x - at) * side >= 0. */
+function clipAlong(poly: Vec2[], at: number, side: 1 | -1): Vec2[] {
+  const out: Vec2[] = []
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]!
+    const q = poly[(i + 1) % poly.length]!
+    const fp = (p.x - at) * side
+    const fq = (q.x - at) * side
+    if (fp >= 0) out.push(p)
+    if (fp >= 0 !== fq >= 0) {
+      const t = fp / (fp - fq)
+      out.push({ x: at, y: p.y + (q.y - p.y) * t })
+    }
+  }
+  // A corner right on the line comes out twice; repeated points upset the triangulation
+  return out.filter((p, i) => {
+    const q = out[(i + 1) % out.length]!
+    return Math.abs(p.x - q.x) + Math.abs(p.y - q.y) > 1e-9
+  })
+}
+
+/**
+ * A wall is built from its pieces beside, under and over the openings (see `wallPieces`). Each
+ * piece is the wall's plan footprint cut square to the piece's stretch along the wall and extruded
+ * over the piece's height, so the ends of the wall are mitred or flush like in 2D while the
+ * openings stay square holes.
+ */
 function WallMesh({
   wall,
+  footprint,
   openings,
   cutHeight,
   showLoadBearing,
 }: {
   wall: Wall
+  /** The wall's outline in plan, from `wallFootprint`. */
+  footprint: Vec2[]
   openings: Opening[]
   cutHeight: number | null
   showLoadBearing: boolean
 }) {
   const selected = useStore((s) => s.selection?.id === wall.id)
   const select = useStore((s) => s.select)
-  const L = wallLength(wall)
+  const color = wallColor(wall, selected, showLoadBearing)
   const d = wallDir(wall)
   const angle = -Math.atan2(d.y, d.x)
-  const ext = wall.thickness / 2 // extend wall ends so corners close
-  const color = wallColor(wall, selected, showLoadBearing)
-  const pieces = wallPieces(wall, openings)
-    .map((p) => (cutHeight ? { ...p, z1: Math.min(p.z1, cutHeight) } : p))
-    .filter((p) => p.z1 - p.z0 > 1e-3)
+  const pieces = useMemo(() => {
+    const L = wallLength(wall)
+    const along = wallDir(wall)
+    // In the group's frame x runs along the wall from wall.a and z along the wall's left normal
+    const across = { x: -along.y, y: along.x }
+    const local = footprint.map((p) => ({ x: dot(sub(p, wall.a), along), y: dot(sub(p, wall.a), across) }))
+    return wallPieces(wall, openings)
+      .map((p) => (cutHeight ? { ...p, z1: Math.min(p.z1, cutHeight) } : p))
+      .filter((p) => p.z1 - p.z0 > 1e-3)
+      .flatMap((p) => {
+        // Cut only at openings; at the wall's own ends the footprint decides where it stops
+        let poly = local
+        if (p.s0 > 1e-6) poly = clipAlong(poly, p.s0, 1)
+        if (p.s1 < L - 1e-6) poly = clipAlong(poly, p.s1, -1)
+        if (poly.length < 3) return []
+        // Shape lives in XY and is extruded along +Z; rotating -90° around X maps (x, y, z) to (x, z, -y)
+        const shape = new THREE.Shape(poly.map((q) => new THREE.Vector2(q.x, -q.y)))
+        return [{ key: `${p.s0}:${p.z0}`, z0: p.z0, height: p.z1 - p.z0, shape }]
+      })
+  }, [wall, footprint, openings, cutHeight])
   return (
     <group
       position={[wall.a.x, 0, wall.a.y]}
@@ -252,16 +310,12 @@ function WallMesh({
         select({ kind: 'wall', id: wall.id })
       }}
     >
-      {pieces.map((p) => {
-        const s0 = p.s0 <= 1e-6 ? -ext : p.s0
-        const s1 = p.s1 >= L - 1e-6 ? L + ext : p.s1
-        return (
-          <mesh key={`${p.s0}:${p.z0}`} position={[(s0 + s1) / 2, (p.z0 + p.z1) / 2, 0]} castShadow receiveShadow>
-            <boxGeometry args={[s1 - s0, p.z1 - p.z0, wall.thickness]} />
-            <meshStandardMaterial color={color} />
-          </mesh>
-        )
-      })}
+      {pieces.map((p) => (
+        <mesh key={p.key} position={[0, p.z0, 0]} rotation-x={-Math.PI / 2} castShadow receiveShadow>
+          <extrudeGeometry args={[p.shape, { depth: p.height, bevelEnabled: false }]} />
+          <meshStandardMaterial color={color} />
+        </mesh>
+      ))}
     </group>
   )
 }

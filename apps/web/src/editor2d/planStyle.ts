@@ -1,4 +1,4 @@
-import { add, sub, wallDir, type Opening, type SnapKind, type Wall } from '@romslig/shared'
+import { wallFootprint, type Opening, type SnapKind, type Wall } from '@romslig/shared'
 
 export const SNAP_COLORS: Record<SnapKind, string> = {
   endpoint: '#e11d48',
@@ -56,11 +56,15 @@ export const OPENING_COLORS: Record<Opening['kind'], string> = {
   opening: '#6b7280',
 }
 
-export function wallQuad(w: Pick<Wall, 'a' | 'b' | 'thickness'>): number[] {
-  const d = wallDir(w)
-  const n = { x: -d.y * (w.thickness / 2), y: d.x * (w.thickness / 2) }
-  const pts = [add(w.a, n), add(w.b, n), sub(w.b, n), sub(w.a, n)]
-  return pts.flatMap((p) => [p.x, p.y])
+/**
+ * The wall's outline as flat Konva points, with its corners against `walls` mitred or flush (see
+ * `wallFootprint`). Without `walls` the ends are square.
+ */
+export function wallQuad(
+  w: Pick<Wall, 'id' | 'a' | 'b' | 'thickness'>,
+  walls: readonly Pick<Wall, 'id' | 'a' | 'b' | 'thickness'>[] = [w],
+): number[] {
+  return wallFootprint(w, walls).flatMap((p) => [p.x, p.y])
 }
 
 export const HINTS: Record<string, string> = {

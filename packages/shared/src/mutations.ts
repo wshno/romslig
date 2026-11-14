@@ -17,6 +17,7 @@ import {
   wallLength,
 } from './geometry.ts'
 import { roomAt } from './furniture.ts'
+import { WALL_JOIN_TOLERANCE } from './walls.ts'
 import type { Opening, Room, Scenario, Vec2, Wall } from './model.ts'
 
 /**
@@ -28,7 +29,7 @@ import type { Opening, Room, Scenario, Vec2, Wall } from './model.ts'
  */
 
 /** Endpoints closer than this are the same corner (m). */
-const JOIN_EPS = 0.02
+const JOIN_EPS = WALL_JOIN_TOLERANCE
 
 export type WallEnd = 'a' | 'b'
 const ENDS: readonly WallEnd[] = ['a', 'b']
