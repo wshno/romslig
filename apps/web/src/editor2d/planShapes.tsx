@@ -1,6 +1,7 @@
 import type Konva from 'konva'
-import { Shape, Text } from 'react-konva'
+import { Group, Rect, Shape, Text } from 'react-konva'
 import type { Vec2 } from '@romslig/shared'
+import { plateSize } from './labelFit.ts'
 import { gridLines, gridSpacing, visibleRect } from './planStyle.ts'
 
 /**
@@ -69,6 +70,58 @@ export function Grid() {
   )
 }
 
+/** Background of plan labels: light and slightly see-through, so labels read over the plan image. */
+export const PLATE_FILL = 'rgba(255, 255, 255, 0.82)'
+
+/**
+ * A single line of text on a rounded background plate, centred on `at` (world) and turned by
+ * `rotation` degrees. Sizes are screen pixels, so the label keeps its size on screen at any zoom.
+ * `dy` shifts it along its own vertical axis, in px.
+ */
+export function PlateText({
+  at,
+  text,
+  scale,
+  fontSize,
+  color,
+  bold = false,
+  rotation = 0,
+  dy = 0,
+}: {
+  at: Vec2
+  text: string
+  scale: number
+  fontSize: number
+  color: string
+  bold?: boolean
+  rotation?: number
+  dy?: number
+}) {
+  const { width, height } = plateSize([text], fontSize, bold)
+  const k = 1 / scale
+  const x = (-width / 2) * k
+  const y = (-height / 2 + dy) * k
+  return (
+    <Group x={at.x} y={at.y} rotation={rotation} listening={false}>
+      <Rect x={x} y={y} width={width * k} height={height * k} cornerRadius={3 * k} fill={PLATE_FILL} />
+      <Text
+        x={x}
+        y={y}
+        width={width * k}
+        height={height * k}
+        align="center"
+        verticalAlign="middle"
+        wrap="none"
+        text={text}
+        fontSize={fontSize * k}
+        fontStyle={bold ? 'bold' : 'normal'}
+        fill={color}
+      />
+    </Group>
+  )
+}
+
+/** A short label just above `at`, such as a length while drawing or editing a wall. */
 export function Label({
   at,
   text,
@@ -80,20 +133,5 @@ export function Label({
   scale: number
   color?: string
 }) {
-  const width = 160 / scale
-  return (
-    <Text
-      x={at.x - width / 2}
-      y={at.y - 16 / scale}
-      width={width}
-      align="center"
-      text={text}
-      fontSize={12 / scale}
-      fill={color}
-      listening={false}
-      shadowColor="#fff"
-      shadowBlur={4 / scale}
-      shadowOpacity={1}
-    />
-  )
+  return <PlateText at={at} text={text} scale={scale} fontSize={12} color={color} dy={-10} />
 }

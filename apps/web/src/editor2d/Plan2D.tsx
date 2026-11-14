@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Konva from 'konva'
-import { Circle, Image as KImage, Layer, Line, Stage } from 'react-konva'
+import { Circle, Group, Image as KImage, Layer, Line, Stage } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { add, dist, furnitureIssues, mul, RUN_INFO, sub, type Scenario } from '@romslig/shared'
 import { api } from '../api.ts'
@@ -12,7 +12,7 @@ import { fmtM } from '../theme.ts'
 import { OpeningShape } from './OpeningShape.tsx'
 import { Background, Grid, Label } from './planShapes.tsx'
 import { HINTS, SNAP_COLORS, wallFill, wallQuad } from './planStyle.ts'
-import { RoomEdgeLengths, RoomShape } from './RoomShape.tsx'
+import { RoomEdgeLengths, RoomLabel, RoomShape } from './RoomShape.tsx'
 import { SuggestionOverlay } from './SuggestionOverlay.tsx'
 import { useDrawingTool } from './useDrawingTool.ts'
 import { WallDiff } from './WallDiff.tsx'
@@ -178,13 +178,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
           </Layer>
           <Layer>
             {scenario.rooms.map((r) => (
-              <RoomShape
-                key={r.id}
-                room={r}
-                scale={scale}
-                selected={selection?.id === r.id}
-                interactive={interactive}
-              />
+              <RoomShape key={r.id} room={r} selected={selection?.id === r.id} interactive={interactive} />
             ))}
             {walls.map((w) => (
               <Line
@@ -232,7 +226,13 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
             {showInstallations && (
               <Installations2D scenario={scenario} scale={scale} interactive={interactive} selection={selection} />
             )}
-            {showDims && scenario.rooms.map((r) => <RoomEdgeLengths key={`dim-${r.id}`} room={r} scale={scale} />)}
+            {/* Labels above furniture and openings, but click-through to what lies under them */}
+            <Group listening={false}>
+              {scenario.rooms.map((r) => (
+                <RoomLabel key={`label-${r.id}`} room={r} scale={scale} />
+              ))}
+              {showDims && scenario.rooms.map((r) => <RoomEdgeLengths key={`dim-${r.id}`} room={r} scale={scale} />)}
+            </Group>
             {selectedWall && <WallHandles wall={selectedWall} scenario={scenario} scale={scale} shiftRef={shiftRef} />}
             {suggestion && <SuggestionOverlay scale={scale} />}
 
