@@ -19,7 +19,7 @@ export function WallDiff({ current, other }: { current: Scenario; other: Scenari
       {removed.map((w) => (
         <Line
           key={`rm-${w.id}`}
-          points={wallQuad(w)}
+          points={wallQuad(w, other.walls)}
           closed
           fill="#fecaca"
           opacity={0.8}
@@ -32,7 +32,7 @@ export function WallDiff({ current, other }: { current: Scenario; other: Scenari
       {added.map((w) => (
         <Line
           key={`add-${w.id}`}
-          points={wallQuad(w)}
+          points={wallQuad(w, current.walls)}
           closed
           stroke="#16a34a"
           strokeWidth={3}

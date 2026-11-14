@@ -17,6 +17,7 @@ import {
   wallDir,
 } from './geometry.ts'
 import type { LoweredCeiling } from './installations.ts'
+import { wallFootprint, wallRectangle } from './walls.ts'
 import type { FurnitureItem, Opening, Room, Scenario, Vec2, Wall } from './model.ts'
 
 export interface Size {
@@ -104,10 +105,9 @@ export function polygonsOverlap(a: Vec2[], b: Vec2[], tolerance = 0.01): boolean
   return true
 }
 
+/** The plain rectangle around a wall's centre line; `wallFootprint` has the corners as they are drawn. */
 export function wallPolygon(w: Pick<Wall, 'a' | 'b' | 'thickness'>): Vec2[] {
-  const d = wallDir(w)
-  const n = v(-d.y * (w.thickness / 2), d.x * (w.thickness / 2))
-  return [add(w.a, n), add(w.b, n), sub(w.b, n), sub(w.a, n)]
+  return wallRectangle(w)
 }
 
 /** Unit normal pointing to the side of the wall a door swings into. */
@@ -275,7 +275,7 @@ export function furnitureIssues(scenario: CheckedScenario) {
     const cat = getCatalogItem(f.catalogId)
     return { f, cat, poly: footprint(f, itemSize(f, cat)), z: zRange(f, cat), zones: clearanceZones(f, cat) }
   })
-  const walls = scenario.walls.map((w) => ({ w, poly: wallPolygon(w) }))
+  const walls = scenario.walls.map((w) => ({ w, poly: wallFootprint(w, scenario.walls) }))
   const doors = scenario.openings.flatMap((o) => {
     const wall = scenario.walls.find((w) => w.id === o.wallId)
     const poly = wall ? doorSwingPolygon(o, wall) : null

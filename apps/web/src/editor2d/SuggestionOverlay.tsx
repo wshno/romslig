@@ -32,7 +32,7 @@ export function SuggestionOverlay({ scale }: { scale: number }) {
         )
       })}
       {lines.map((w) => (
-        <Line key={w.id} points={wallQuad(w)} closed fill="#ea580c" opacity={0.7} />
+        <Line key={w.id} points={wallQuad(w, lines)} closed fill="#ea580c" opacity={0.7} />
       ))}
       {s.openings.map((o) => {
         const w = lines.find((x) => x.id === o.wallId)

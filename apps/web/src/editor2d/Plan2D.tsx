@@ -189,7 +189,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
             {walls.map((w) => (
               <Line
                 key={w.id}
-                points={wallQuad(w)}
+                points={wallQuad(w, walls)}
                 closed
                 fill={wallFill(w, selection?.id === w.id)}
                 opacity={0.9}
