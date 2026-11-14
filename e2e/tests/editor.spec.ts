@@ -134,7 +134,7 @@ test.describe('editor', () => {
       await page.getByRole('button', { name: 'Møbler', exact: true }).click()
       await expect(page.locator('.room-list li')).toHaveCount(2)
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 
@@ -184,7 +184,7 @@ test.describe('editor', () => {
       expect(second!.a.x).toBeCloseTo(first!.b.x, 6)
       expect(second!.a.y).toBeCloseTo(first!.b.y, 6)
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 
@@ -227,7 +227,7 @@ test.describe('editor', () => {
       await expect(page.getByPlaceholder('Søk…')).toBeVisible()
       await expect(tabs.getByRole('button', { name: 'Møbler', exact: true })).toHaveClass(/active/)
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 
@@ -261,7 +261,7 @@ test.describe('editor', () => {
       const free = (await walls())[1]!
       expect([free.a.x, free.a.y, free.b.x, free.b.y].every(onGrid)).toBe(false)
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 
@@ -307,7 +307,7 @@ test.describe('editor', () => {
       await expect(page.getByText('Lagret', { exact: true })).toBeVisible()
       expect((await stored(page, id)).version).toBe(before.version)
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 
@@ -363,7 +363,7 @@ test.describe('editor', () => {
       expect(second!.a.x).toBeCloseTo(first!.b.x, 6)
       expect(second!.b.x).toBeCloseTo(moved!.b.x, 6)
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 
@@ -422,7 +422,7 @@ test.describe('editor', () => {
       await expect.poll(async () => (await door()).wallId).toBe(top!.id)
       expect((await door()).offset).toBeCloseTo(along.offset, 6)
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 
@@ -444,7 +444,7 @@ test.describe('editor', () => {
       await expect(page.locator('.inspector')).toBeVisible()
       await expect(page.getByRole('button', { name: '2D + 3D', exact: true })).toHaveClass(/active/)
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 })
