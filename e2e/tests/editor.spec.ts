@@ -241,15 +241,18 @@ test.describe('editor', () => {
       const at = (dx: number, dy: number) => ({ x: box.x + box.width / 2 + dx, y: box.y + box.height / 2 + dy })
       const summary = page.locator('.inspector .selection-summary')
 
-      // Two pieces dragged from the catalog into the drawing, 300 px apart (no walls: no snapping)
-      await page.getByRole('button', { name: 'Møbler', exact: true }).click()
+      // Two pieces dragged from the catalog into the drawing, 300 px apart (no walls: no snapping).
+      // A dropped piece is selected and the panel shows it instead of the catalog, so the Møbler tab
+      // is clicked again before each drop.
       const drop = async (search: string, name: string, dx: number) => {
+        await page.locator('.inspector .tabs').getByRole('button', { name: 'Møbler', exact: true }).click()
         await page.getByPlaceholder('Søk…').fill(search)
         await page
           .locator('.catalog-list li')
           .filter({ hasText: name })
           .getByRole('button')
           .dragTo(stage, { targetPosition: { x: box.width / 2 + dx, y: box.height / 2 } })
+        await expect(page.locator('.inspector-header h3')).toHaveText('Møbel')
       }
       await drop('sofa, 3', 'Sofa, 3-seter', -150)
       await drop('spisebord, 4', 'Spisebord, 4 pers.', 150)
@@ -267,8 +270,8 @@ test.describe('editor', () => {
       // Escape lets go of both; Shift + drag around them selects both again
       await page.keyboard.press('Escape')
       await expect(summary).toHaveCount(0)
-      const from = at(-320, -150)
-      const to = at(320, 150)
+      const from = at(-260, -120)
+      const to = at(260, 120)
       await page.keyboard.down('Shift')
       await page.mouse.move(from.x, from.y)
       await page.mouse.down()
