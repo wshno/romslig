@@ -99,7 +99,7 @@ test.describe('print', () => {
       await expect(page).toHaveURL(new RegExp(`#/p/${project.id}/print$`))
       await expect(page.getByRole('row', { name: /Sofa, 3-seter/ })).toBeVisible()
     } finally {
-      await removeProject(page.request, project.id)
+      await removeProject(page, project.id)
     }
   })
 })

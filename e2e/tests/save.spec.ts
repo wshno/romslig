@@ -19,7 +19,7 @@ test.describe('autosave', () => {
       const stored = await (await page.request.get(`/api/projects/${id}`)).json()
       expect(stored.ceilingHeight).toBe(3)
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 
@@ -42,7 +42,7 @@ test.describe('autosave', () => {
         const stored = await (await page.request.get(`/api/projects/${id}`)).json()
         expect(stored.ceilingHeight).toBe(2.8)
       } finally {
-        await removeProject(page.request, id)
+        await removeProject(page, id)
       }
     })
   })

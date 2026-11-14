@@ -25,7 +25,7 @@ test.describe('projects', () => {
       const plan = await page.request.get(`/api/projects/${id}/plan`)
       expect(plan.headers()['content-type']).toBe('image/png')
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 
@@ -72,7 +72,7 @@ test.describe('projects', () => {
       ids.push(page.url().split('#/p/')[1]!)
       expect(new Set(ids).size).toBe(2)
     } finally {
-      for (const id of ids) await removeProject(page.request, id)
+      for (const id of ids) await removeProject(page, id)
     }
   })
 
@@ -122,7 +122,7 @@ test.describe('projects', () => {
       await expect(page.locator('.project-name')).toHaveValue(name)
       await expect(page.getByRole('button', { name: /Digitaliser med AI/ })).toBeVisible()
     } finally {
-      for (const id of ids) await removeProject(page.request, id)
+      for (const id of ids) await removeProject(page, id)
     }
   })
 
@@ -155,7 +155,7 @@ test.describe('projects', () => {
       await expect(toggle).toHaveAttribute('aria-pressed', 'true')
       await expect(slider).toBeVisible()
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 })
