@@ -66,6 +66,8 @@ interface State {
   inspectorTab: InspectorTab
   /** True while a furniture item is dragged in 3D (orbit controls pause). */
   dragging3d: boolean
+  /** True while a wall, room, ceiling, run or calibration is being drawn in 2D (set by the drawing tool). */
+  drawing: boolean
   /** Wall thickness used by the wall tool */
   wallThickness: number
   /** Settings for the installation tools */
@@ -121,6 +123,13 @@ interface State {
   calibrate(pxDistance: number, meters: number): void
 
   setInspectorTab(tab: InspectorTab): void
+  setDrawing(drawing: boolean): void
+  /**
+   * Escape in the editor: a drawing in progress ends and the tool goes back to Velg (the drawing
+   * tool drops its points itself); otherwise the selection is cleared; with nothing selected the
+   * tool goes back to Velg.
+   */
+  escape(): void
   /**
    * Stores a finished assistant exchange: both chat messages, the new variants and the notes for
    * the variant the question was asked from.
@@ -165,6 +174,7 @@ export const useStore = create<State>()(
       selection: null,
       suggestion: null,
       dragging3d: false,
+      drawing: false,
       inspectorTab: 'oversikt',
       wallThickness: DEFAULTS.interiorWallThickness,
       fixtureKind: 'outlet',
@@ -386,6 +396,13 @@ export const useStore = create<State>()(
       },
 
       setInspectorTab: (inspectorTab) => set({ inspectorTab }),
+      setDrawing: (drawing) => set({ drawing }),
+      escape: () => {
+        const { drawing, selection, tool } = get()
+        if (drawing) set({ tool: 'select' })
+        else if (selection) set({ selection: null })
+        else if (tool !== 'select') set({ tool: 'select' })
+      },
       applyAssistantResult: ({ question, answer, scenarios, notes, baseScenarioId }) =>
         get().updateProject((p) => ({
           ...p,
