@@ -11,6 +11,15 @@ import { authFile } from './tests/auth-paths'
 const remote = Boolean(process.env.BASE_URL)
 const baseURL = process.env.BASE_URL ?? 'http://localhost:5173'
 
+// E2E_SUITE=production-smoke (production-smoke.yml) runs only the specs tagged @production-smoke, and
+// every other run leaves them out: they work on production data and belong to that job alone. Set per
+// project, not at the top level, so the remote run's setup project (the Authelia login) still runs.
+const productionSmoke = process.env.E2E_SUITE === 'production-smoke'
+const suite = productionSmoke
+  ? { grep: /@production-smoke/ }
+  : // Specs that need the compose stack itself (e.g. a second user through the second proxy port).
+    { grepInvert: remote ? [/@local-only/, /@production-smoke/] : /@production-smoke/ }
+
 // Shared defaults (testDir ./tests, forbidOnly, retries, the github/html/json CI reporters at the
 // paths the reusable reads, trace, screenshot and video on failure) come from @wshno/playwright-config.
 export default definePlaywrightConfig({
@@ -48,8 +57,6 @@ export default definePlaywrightConfig({
       env: { ...process.env, LANG: /utf-?8/i.test(process.env.LANG ?? '') ? process.env.LANG : 'C.UTF-8' },
     },
   },
-  // Specs that need the compose stack itself (e.g. a second user through the second proxy port).
-  grepInvert: remote ? /@local-only/ : undefined,
   projects: remote
     ? [
         { name: 'setup', testMatch: /auth\.setup\.ts/ },
@@ -57,7 +64,8 @@ export default definePlaywrightConfig({
           name: 'chromium',
           use: { ...devices['Desktop Chrome'], storageState: authFile },
           dependencies: ['setup'],
+          ...suite,
         },
       ]
-    : [{ name: 'chromium', testIgnore: /auth\.setup\.ts/, use: { ...devices['Desktop Chrome'] } }],
+    : [{ name: 'chromium', testIgnore: /auth\.setup\.ts/, use: { ...devices['Desktop Chrome'] }, ...suite }],
 })
