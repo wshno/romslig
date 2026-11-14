@@ -287,7 +287,7 @@ test.describe('editor', () => {
       await expect.poll(async () => (await stored(page, id)).scenarios[0]!.furniture.length).toBe(0)
       await saved(page)
     } finally {
-      await removeProject(page.request, id)
+      await removeProject(page, id)
     }
   })
 
