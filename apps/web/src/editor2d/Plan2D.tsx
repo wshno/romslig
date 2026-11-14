@@ -4,6 +4,7 @@ import { Circle, Group, Image as KImage, Layer, Line, Rect, Stage } from 'react-
 import type { KonvaEventObject } from 'konva/lib/Node'
 import {
   add,
+  boundingWalls,
   dist,
   footprint,
   furnitureIssues,
@@ -31,6 +32,7 @@ import { distanceText, measureDetails } from './measure.ts'
 import { Background, Grid, Label, PlateText } from './planShapes.tsx'
 import { usePlanImagePrefs } from './planImagePrefs.ts'
 import { HINTS, SNAP_COLORS, wallFill, wallQuad } from './planStyle.ts'
+import { RoomCorners } from './RoomCorners.tsx'
 import { RoomEdgeLengths, RoomLabel, RoomShape } from './RoomShape.tsx'
 import { SuggestionOverlay } from './SuggestionOverlay.tsx'
 import { useDrawingTool } from './useDrawingTool.ts'
@@ -171,6 +173,21 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   }
 
   const selectedWall = single?.kind === 'wall' ? walls.find((w) => w.id === single.id) : undefined
+  /**
+   * The selected room when its corners can be dragged: it is drawn across an open area, not
+   * bounded by walls (those follow their walls). It keeps its handles while a corner is dragged,
+   * even if the outline comes to run along walls on the way.
+   */
+  const [draggingCorner, setDraggingCorner] = useState(false)
+  const selectedRoom = single?.kind === 'room' ? scenario.rooms.find((r) => r.id === single.id) : undefined
+  const freeRoom = useMemo(
+    () =>
+      selectedRoom && selectedRoom.polygon.length >= 3 && !boundingWalls(selectedRoom.polygon, walls)
+        ? selectedRoom
+        : undefined,
+    [selectedRoom, walls],
+  )
+  const cornerRoom = draggingCorner ? selectedRoom : freeRoom
   /** How far the selected wall has been moved while its body is dragged. */
   const [wallMoved, setWallMoved] = useState<number | null>(null)
   /** The opening being dragged, with the wall it lands on (highlighted) and its gap to the nearer end. */
@@ -349,6 +366,15 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                 scale={scale}
                 shiftRef={shiftRef}
                 moved={wallMoved}
+              />
+            )}
+            {cornerRoom && interactive && (
+              <RoomCorners
+                room={cornerRoom}
+                walls={walls}
+                scale={scale}
+                shiftRef={shiftRef}
+                onDragging={setDraggingCorner}
               />
             )}
             {suggestion && <SuggestionOverlay scale={scale} />}

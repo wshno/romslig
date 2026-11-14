@@ -166,6 +166,35 @@ describe('a drag', () => {
   })
 })
 
+describe('dragging a room corner', () => {
+  const square = [
+    { x: 0, y: 0 },
+    { x: 4, y: 0 },
+    { x: 4, y: 3 },
+    { x: 0, y: 3 },
+  ]
+
+  it('is one undo step and reassigns the furniture', () => {
+    state().addRoom(square)
+    const room = scenario().rooms[0]!
+    state().addFurniture('sofa-3', { x: 5, y: 1 }, { snap: false })
+    expect(scenario().furniture[0]!.roomId).toBeNull()
+    const before = steps()
+
+    beginGesture()
+    for (const x of [5, 6, 7]) state().setRoomPolygon(room.id, [square[0]!, { x, y: 0 }, square[2]!, square[3]!])
+    state().setRoomPolygon(room.id, [square[0]!, { x: 7, y: 0 }, { x: 7, y: 3 }, square[3]!])
+    endGesture()
+
+    expect(steps()).toBe(before + 1)
+    expect(scenario().rooms[0]!.polygon[1]).toEqual({ x: 7, y: 0 })
+    expect(scenario().furniture[0]!.roomId).toBe(room.id)
+    undo()
+    expect(scenario().rooms[0]!.polygon).toEqual(square)
+    expect(scenario().furniture[0]!.roomId).toBeNull()
+  })
+})
+
 describe('typing in a field', () => {
   const type = (steps: ReturnType<typeof mergeSteps>, text: string) => {
     for (let i = 1; i <= text.length; i++) {
