@@ -70,6 +70,13 @@ export function useDrawingTool({
     setCalPts([])
   }
 
+  // The editor's Escape shortcut needs to know whether something is being drawn
+  const inProgress = anchor !== null || roomPts.length > 0 || calPts.length > 0
+  useEffect(() => {
+    useStore.getState().setDrawing(inProgress)
+  }, [inProgress])
+  useEffect(() => () => useStore.getState().setDrawing(false), [])
+
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       shiftRef.current = e.shiftKey

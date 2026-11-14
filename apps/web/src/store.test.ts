@@ -307,3 +307,48 @@ describe('focus mode', () => {
     expect(state().focus).toBe(false)
   })
 })
+
+describe('escape', () => {
+  const wallId = () => scenario().walls[0]!.id
+
+  beforeEach(() => {
+    state().setTool('select')
+    state().setDrawing(false)
+  })
+
+  it('clears the selection first and keeps the tool', () => {
+    addWall()
+    state().setTool('wall')
+    state().select({ kind: 'wall', id: wallId() })
+    state().escape()
+    expect(state().selection).toBeNull()
+    expect(state().tool).toBe('wall')
+  })
+
+  it('goes back to Velg when nothing is selected', () => {
+    state().setTool('room')
+    state().escape()
+    expect(state().tool).toBe('select')
+    state().escape()
+    expect(state().tool).toBe('select')
+  })
+
+  it('ends a drawing in progress by going back to Velg, before touching the selection', () => {
+    addWall()
+    state().setTool('run')
+    state().select({ kind: 'wall', id: wallId() })
+    state().setDrawing(true)
+    state().escape()
+    expect(state().tool).toBe('select')
+    expect(state().selection).toEqual({ kind: 'wall', id: wallId() })
+  })
+
+  it('is not part of the undo history', () => {
+    addWall()
+    state().select({ kind: 'wall', id: wallId() })
+    const before = steps()
+    state().escape()
+    expect(state().selection).toBeNull()
+    expect(steps()).toBe(before)
+  })
+})
