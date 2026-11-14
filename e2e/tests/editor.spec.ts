@@ -202,7 +202,9 @@ test.describe('editor', () => {
       const [w] = await walls()
       expect([w!.a.x, w!.a.y, w!.b.x, w!.b.y].every(onGrid)).toBe(true)
 
-      // With Alt held the corner lands where the pointer is, which is off the grid here
+      // With Alt held the corner lands where the pointer is, which is off the grid here. Escape
+      // also left the wall tool, so pick it again.
+      await tool(page, 'Vegg').click()
       await page.keyboard.down('Alt')
       await click(-117, 63)
       await click(-117, 151)
