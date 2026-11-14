@@ -290,10 +290,10 @@ test.describe('editor', () => {
       await click(-150, 0)
       await click(150, 0)
       await expect(readout).toHaveText(`Avstand: ${length}`)
-      // The next click starts a new measurement, from where the pointer still is (nothing to show yet)
-      await click(0, 0)
-      await expect(readout).toHaveCount(0)
+      // The next click starts a new measurement: nothing to show while the pointer is still on its
+      // first point, and the click after that fixes it
       await click(-150, 0)
+      await expect(readout).toHaveCount(0)
       await click(150, 0)
       await expect(readout).toHaveText(`Avstand: ${length}`)
 
