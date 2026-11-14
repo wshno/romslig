@@ -75,6 +75,8 @@ export const HINTS: Record<string, string> = {
   opening: 'Klikk på en vegg for å sette inn en åpning.',
   room: 'Klikk hjørnene i rommet. Klikk på første punkt for å lukke.',
   calibrate: 'Klikk to punkter med kjent avstand (f.eks. en målsatt vegg).',
+  measure:
+    'Klikk to punkter for å måle avstanden. Neste klikk starter en ny måling, Esc fjerner den. Shift = fri vinkel, Alt = uten rutenett.',
   fixture: 'Klikk for å plassere. Nær en vegg festes punktet på veggflaten på den siden du klikker.',
   run: 'Klikk punktene langs føringen. Dobbeltklikk eller høyreklikk avslutter. Shift = fri vinkel.',
   ceiling: 'Klikk hjørnene i det nedforede området. Klikk på første punkt for å lukke.',

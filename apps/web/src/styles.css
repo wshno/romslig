@@ -353,6 +353,18 @@ select {
   border-radius: 6px;
   pointer-events: none;
 }
+.plan2d-overlay .measure-readout {
+  background: #fffd;
+  color: #a21caf;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+}
+.plan2d-overlay .measure-readout .muted {
+  font-weight: 400;
+}
 .walk-hint {
   position: absolute;
   bottom: 12px;
