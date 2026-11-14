@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { doorSwingPolygon } from './furniture.ts'
+import { doorSwingNormal, doorSwingPolygon } from './furniture.ts'
 import { clampOpening, dist, fitOpening, v } from './geometry.ts'
-import { DEFAULTS, withOpeningKind, type Opening, type Wall } from './model.ts'
-import { doorLeaf } from './openings.ts'
+import { DEFAULTS, emptyScenario, withOpeningKind, type Opening, type Scenario, type Wall } from './model.ts'
+import { doorLeaf, moveOpening, openingEndGap, type MoveOpeningOptions } from './openings.ts'
 
 const wall: Wall = {
   id: 'w',
@@ -124,5 +124,113 @@ describe('doorLeaf', () => {
   it('is only for doors', () => {
     expect(doorLeaf({ ...leafDoor, kind: 'window' }, leafWall)).toBeNull()
     expect(doorLeaf({ ...leafDoor, kind: 'opening' }, leafWall)).toBeNull()
+  })
+})
+
+describe('moveOpening', () => {
+  const mkWall = (id: string, a: [number, number], b: [number, number]): Wall => ({
+    ...wall,
+    id,
+    a: v(...a),
+    b: v(...b),
+  })
+  // A 4 × 3 room (y down: the room lies between y = 0 and y = 3), a slanted wall and a short one
+  const walls = [
+    mkWall('bottom', [0, 0], [4, 0]),
+    mkWall('right', [4, 0], [4, 3]),
+    mkWall('top', [4, 3], [0, 3]),
+    mkWall('left', [0, 3], [0, 0]),
+    mkWall('slant', [6, 0], [9, 4]),
+    mkWall('short', [0, 5], [0.5, 5]),
+  ]
+  const scenario = (o: Opening): Scenario => ({ ...emptyScenario(), walls, openings: [o] })
+  const moved = (o: Opening, p: [number, number], opts?: MoveOpeningOptions) =>
+    moveOpening(scenario(o), o.id, v(...p), opts).openings[0]!
+  const onBottom = door({ wallId: 'bottom', offset: 2 })
+
+  it('slides along its wall to the point, kept inside the wall', () => {
+    expect(moved(onBottom, [1.234, 0.02]).offset).toBeCloseTo(1.234)
+    expect(moved(onBottom, [10, 0.1]).offset).toBeCloseTo(3.55)
+    expect(moved(onBottom, [-3, 0]).offset).toBeCloseTo(0.45)
+    // Far from every wall it still follows along its own
+    expect(moved(onBottom, [1, 1.5], { switchDist: 0.3 })).toMatchObject({ wallId: 'bottom', offset: 1 })
+  })
+
+  it('returns the same scenario when nothing changes', () => {
+    const s = scenario(onBottom)
+    expect(moveOpening(s, onBottom.id, v(2, 0.1))).toBe(s)
+    expect(moveOpening(s, 'missing', v(1, 0))).toBe(s)
+  })
+
+  it('rounds the gap to the nearer wall end to the step', () => {
+    // Gap to the start 0.784 → 0.8
+    expect(moved(onBottom, [1.234, 0], { snapStep: 0.1 }).offset).toBeCloseTo(1.25)
+    // Gap to the far end 4 - 3.47 = 0.53 → 0.5
+    const nearB = moved(onBottom, [3.02, 0], { snapStep: 0.1 })
+    expect(nearB.offset).toBeCloseTo(3.05)
+    const g = openingEndGap(nearB, walls[0]!)
+    expect(g.end).toBe('b')
+    expect(g.gap).toBeCloseTo(0.5)
+    expect(g.edge.x).toBeCloseTo(3.5)
+  })
+
+  it('goes over to another wall the point comes close to, keeping its size', () => {
+    const o = moved(onBottom, [0.1, 1.5], { switchDist: 0.3 })
+    expect(o).toMatchObject({ wallId: 'left', width: 0.9, height: 2.1, sill: 0 })
+    expect(o.offset).toBeCloseTo(1.5)
+    // Without a switch distance it stays on its wall
+    expect(moved(onBottom, [0.1, 1.5]).wallId).toBe('bottom')
+  })
+
+  it('keeps the grab offset along its own wall, and switches walls by where the pointer is', () => {
+    // Grabbed 0.4 m right of its centre: the centre stays 0.4 m left of the pointer
+    const grab = v(0.4, 0.02)
+    expect(moved(onBottom, [2.4, 0.05], { grab }).offset).toBeCloseTo(2)
+    expect(moved(onBottom, [1.9, 0], { grab }).offset).toBeCloseTo(1.5)
+    // The pointer on the right wall: over to it, although pointer - grab is 0.4 m from that wall
+    // (more than switchDist). This is the drag that failed in e2e when the centre was measured.
+    const o = moved(onBottom, [4, 1.5], { grab, switchDist: 0.3 })
+    expect(o.wallId).toBe('right')
+    // Centred on the pointer there: the grab offset belongs to the old wall's direction
+    expect(o.offset).toBeCloseTo(1.5)
+  })
+
+  it('does not go over to a wall shorter than itself', () => {
+    expect(moved(onBottom, [0.25, 5.05], { switchDist: 0.3 }).wallId).toBe('bottom')
+    const narrow = door({ kind: 'window', wallId: 'bottom', width: 0.4, sill: 0.9, height: 1.2 })
+    const o = moved(narrow, [0.25, 5.05], { switchDist: 0.3 })
+    expect(o).toMatchObject({ wallId: 'short', width: 0.4, sill: 0.9, height: 1.2 })
+    expect(o.offset).toBeCloseTo(0.25)
+  })
+
+  it('works on vertical and slanted walls', () => {
+    const onRight = door({ kind: 'window', wallId: 'right', offset: 1.5, width: 1.2 })
+    // Along the vertical wall, rounded: gap to the start 0.737 → 0.7
+    expect(moved(onRight, [4.05, 1.337], { snapStep: 0.1 }).offset).toBeCloseTo(1.3)
+    // Over to the slanted wall (direction 0.6, 0.8) from a point a little to the side of it
+    const o = moved(onRight, [7.5 + 0.08, 2 - 0.06], { switchDist: 0.3, snapStep: 0.1 })
+    expect(o.wallId).toBe('slant')
+    expect(o.offset).toBeCloseTo(2.5)
+    // Along the slanted wall, clamped at its end
+    expect(moveOpening(scenario(o), o.id, v(20, 20)).openings[0]!.offset).toBeCloseTo(4.4)
+  })
+
+  it('keeps a door swinging into the room it swung into, and out when it swung out', () => {
+    const swing = (o: Opening) => {
+      const n = doorSwingNormal(
+        o,
+        walls.find((w) => w.id === o.wallId)!,
+      )
+      return [Math.round(n.x) + 0, Math.round(n.y) + 0]
+    }
+    const inward = { ...onBottom, flip: true }
+    expect(swing(inward)).toEqual([0, 1])
+    expect(swing(moved(inward, [0.1, 1.5], { switchDist: 0.3 }))).toEqual([1, 0])
+    expect(swing(moved(inward, [2, 2.9], { switchDist: 0.3 }))).toEqual([0, -1])
+    expect(swing(moved(inward, [3.9, 1], { switchDist: 0.3 }))).toEqual([-1, 0])
+    const outward = { ...onBottom, flip: false }
+    expect(swing(outward)).toEqual([0, -1])
+    expect(swing(moved(outward, [0.1, 1.5], { switchDist: 0.3 }))).toEqual([-1, 0])
+    expect(swing(moved(outward, [2, 2.9], { switchDist: 0.3 }))).toEqual([0, 1])
   })
 })
