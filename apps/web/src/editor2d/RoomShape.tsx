@@ -69,12 +69,16 @@ export function RoomEdgeLengths({ room, scale }: { room: Room; scale: number }) 
   )
 }
 
-/** The room's outline and fill; clicking it selects the room. Its text is drawn by RoomLabel. */
+/**
+ * The room's outline and fill; clicking it selects the room (Shift: toggles it in the selection). Its
+ * text is drawn by RoomLabel.
+ */
 export function RoomShape({ room, selected, interactive }: { room: Room; selected: boolean; interactive: boolean }) {
-  const select = useStore((s) => s.select)
+  const pick = useStore((s) => s.pick)
   if (room.polygon.length < 3) return null
   return (
     <Line
+      name="room"
       points={room.polygon.flatMap((p) => [p.x, p.y])}
       closed
       fill={ROOM_COLORS[room.type]}
@@ -85,7 +89,7 @@ export function RoomShape({ room, selected, interactive }: { room: Room; selecte
       onClick={(e) => {
         if (!interactive) return
         e.cancelBubble = true
-        select({ kind: 'room', id: room.id })
+        pick({ kind: 'room', id: room.id }, e.evt.shiftKey)
       }}
     />
   )

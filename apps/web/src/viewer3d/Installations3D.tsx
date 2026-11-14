@@ -10,6 +10,7 @@ import {
   type Scenario,
 } from '@romslig/shared'
 import { useStore } from '../store.ts'
+import { isSelected } from '../selection.ts'
 
 const CATEGORY_COLORS = { electric: '#eab308', water: '#2563eb', ventilation: '#16a34a' } as const
 const UP = new THREE.Vector3(0, 1, 0)
@@ -32,11 +33,11 @@ export function Installations3D({ scenario, ceilingHeight }: { scenario: Scenari
 }
 
 function useSelect(kind: 'fixture' | 'run' | 'ceiling', id: string) {
-  const selected = useStore((s) => s.selection?.id === id)
-  const onClick = (e: { stopPropagation(): void }) => {
+  const selected = useStore((s) => isSelected(s.selection, id))
+  const onClick = (e: { stopPropagation(): void; nativeEvent: MouseEvent }) => {
     if (useStore.getState().tool !== 'select') return
     e.stopPropagation()
-    useStore.getState().select({ kind, id })
+    useStore.getState().pick({ kind, id }, e.nativeEvent.shiftKey)
   }
   return { selected, onClick }
 }

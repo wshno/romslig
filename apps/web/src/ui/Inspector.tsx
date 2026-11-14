@@ -16,6 +16,7 @@ import { digitizePlan } from '@romslig/ai'
 import { api, preparePlanForAi } from '../api.ts'
 import { withAi } from '../ai/client.ts'
 import { activeScenario, useStore, type InspectorTab } from '../store.ts'
+import { selectedIds, selectionSummary, singleSelected } from '../selection.ts'
 import { ROOM_COLORS, ROOM_LABELS, fmtM2 } from '../theme.ts'
 import { FurnitureCatalog, FurnitureList, FurnitureProps } from './FurniturePanel.tsx'
 import { AssistantPanel, NotesList } from './AssistantPanel.tsx'
@@ -25,7 +26,8 @@ import { Num } from './fields.tsx'
 
 export function Inspector() {
   const project = useStore((s) => s.project)!
-  const selection = useStore((s) => s.selection)
+  const selection = useStore((s) => singleSelected(s.selection))
+  const many = useStore((s) => s.selection.length > 1)
   const scenario = activeScenario(project)
   const wall = selection?.kind === 'wall' ? scenario.walls.find((w) => w.id === selection.id) : undefined
   const opening = selection?.kind === 'opening' ? scenario.openings.find((o) => o.id === selection.id) : undefined
@@ -35,7 +37,8 @@ export function Inspector() {
   const setTab = useStore((s) => s.setInspectorTab)
   const tabs = { oversikt: <Overview />, moebler: <FurnitureTab />, assistent: <AssistantPanel /> }
   let content = tabs[tab]
-  if (wall) content = <WallProps key={wall.id} wall={wall} />
+  if (many) content = <ManySelected />
+  else if (wall) content = <WallProps key={wall.id} wall={wall} />
   else if (opening) content = <OpeningProps key={opening.id} o={opening} />
   else if (room) content = <RoomProps key={room.id} room={room} />
   else if (furniture) content = <FurnitureProps key={furniture.id} item={furniture} />
@@ -52,9 +55,9 @@ export function Inspector() {
   // The tabs stay visible with a selection; a click on one clears the selection and shows that tab
   const tabButton = (t: InspectorTab, label: string) => (
     <button
-      className={tab === t && !selection ? 'active' : ''}
+      className={tab === t && !selection && !many ? 'active' : ''}
       onClick={() => {
-        if (selection) useStore.getState().select(null)
+        if (selection || many) useStore.getState().select(null)
         setTab(t)
       }}
     >
@@ -96,6 +99,70 @@ function Header({ title }: { title: string }) {
       <button className="link danger" onClick={deleteSelected} title="Slett (Delete)">
         Slett
       </button>
+    </div>
+  )
+}
+
+/** Several things selected: what they are, and what can be done to all of them at once. */
+function ManySelected() {
+  const project = useStore((s) => s.project)!
+  const selection = useStore((s) => s.selection)
+  const scenario = activeScenario(project)
+  const { select, deleteSelected, duplicateSelected, copySelectedFurnitureTo } = useStore.getState()
+  const furniture = selectedIds(selection, 'furniture').length
+  const canDuplicate = selection.some((x) => x.kind === 'furniture' || x.kind === 'opening')
+  const others = project.scenarios.filter((s) => s.id !== scenario.id)
+  const [copied, setCopied] = useState<string | null>(null)
+  return (
+    <div className="props">
+      <div className="inspector-header">
+        <button className="link" onClick={() => select(null)}>
+          ← Oversikt
+        </button>
+        <h3>Flere valgt</h3>
+      </div>
+      <p className="selection-summary" role="status">
+        {selectionSummary(selection, scenario)}
+      </p>
+      <div className="row">
+        <button
+          onClick={duplicateSelected}
+          disabled={!canDuplicate}
+          title="Lag kopier av de valgte møblene og åpningene rett ved siden av (Ctrl+D)"
+        >
+          Dupliser
+        </button>
+        <button className="danger" onClick={deleteSelected} title="Slett alt som er valgt (Delete)">
+          Slett
+        </button>
+      </div>
+      {furniture > 0 && others.length > 0 && (
+        <label className="field">
+          <span>Kopier til variant …</span>
+          <select
+            value=""
+            aria-label="Kopier de valgte møblene til en annen variant"
+            onChange={(e) => {
+              const to = others.find((s) => s.id === e.target.value)
+              if (!to) return
+              const n = copySelectedFurnitureTo(to.id)
+              setCopied(`Kopierte ${n} ${n === 1 ? 'møbel' : 'møbler'} til «${to.name}».`)
+            }}
+          >
+            <option value="">Velg variant</option>
+            {others.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {copied && <p className="ok">{copied}</p>}
+      <p className="muted">
+        Shift+klikk legger til eller fjerner én ting. Shift+dra på et tomt område velger alt innenfor. Dra et av møblene
+        for å flytte alle de valgte møblene; Q/E dreier hvert av dem.
+      </p>
     </div>
   )
 }

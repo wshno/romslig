@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { Circle, Group, Line, Rect, Text } from 'react-konva'
 import {
   add,
@@ -9,7 +10,8 @@ import {
   type FurnitureIssue,
   type FurnitureItem,
 } from '@romslig/shared'
-import { beginGesture, endGesture, useStore } from '../store.ts'
+import { activeScenario, beginGesture, endGesture, useStore } from '../store.ts'
+import { isSelected, selectedIds } from '../selection.ts'
 
 const ROTATE_HANDLE_GAP = 0.35
 
@@ -17,14 +19,25 @@ interface Props {
   item: FurnitureItem
   issues: FurnitureIssue[] | undefined
   selected: boolean
+  /** It is the only thing selected: it gets the rotation handle. */
+  alone: boolean
   interactive: boolean
   scale: number
   shiftRef: React.RefObject<boolean>
 }
 
-/** A furniture item in plan view: footprint, front edge, label, free-space zones and handles. */
-export function Furniture2D({ item, issues, selected, interactive, scale, shiftRef }: Props) {
-  const { select, moveFurniture, updateFurniture } = useStore.getState()
+/**
+ * A furniture item in plan view: footprint, front edge, label, free-space zones and handles.
+ *
+ * A press selects it alone, or with Shift toggles it in the selection. A press on an item that is
+ * already selected keeps the selection, so dragging it moves every selected furniture item along
+ * (one undo step, without wall snapping); a click without dragging then selects it alone. Dragged
+ * alone, it snaps to walls as before (Shift: no snapping).
+ */
+export function Furniture2D({ item, issues, selected, alone, interactive, scale, shiftRef }: Props) {
+  const { pick, moveFurniture, updateFurniture } = useStore.getState()
+  // The furniture as it stood when a group drag started, and where this item was then
+  const groupRef = useRef<{ base: FurnitureItem[]; from: { x: number; y: number } } | null>(null)
   const cat = getCatalogItem(item.catalogId)
   const { w, d } = itemSize(item, cat)
   const hasIssues = Boolean(issues?.length)
@@ -66,17 +79,40 @@ export function Furniture2D({ item, issues, selected, interactive, scale, shiftR
         onMouseDown={(e) => {
           if (!interactive) return
           e.cancelBubble = true
-          select({ kind: 'furniture', id: item.id })
+          const shift = e.evt.shiftKey
+          if (shift || !isSelected(useStore.getState().selection, item.id))
+            pick({ kind: 'furniture', id: item.id }, shift)
         }}
         onClick={(e) => {
-          if (interactive) e.cancelBubble = true
+          if (!interactive) return
+          e.cancelBubble = true
+          // A click (no drag) on one of several selected items selects it alone
+          const { selection } = useStore.getState()
+          if (!e.evt.shiftKey && selection.length > 1) pick({ kind: 'furniture', id: item.id }, false)
         }}
         onDragStart={(e) => {
           e.cancelBubble = true
+          const { selection, project } = useStore.getState()
+          // Shift+press took it out of the selection: nothing to drag
+          if (!isSelected(selection, item.id) || !project) {
+            e.target.stopDrag()
+            return
+          }
+          const ids = new Set(selectedIds(selection, 'furniture'))
+          groupRef.current =
+            ids.size > 1
+              ? { base: activeScenario(project).furniture.filter((f) => ids.has(f.id)), from: { x: item.x, y: item.y } }
+              : null
           beginGesture()
         }}
         onDragMove={(e) => {
           e.cancelBubble = true
+          const group = groupRef.current
+          if (group) {
+            const delta = { x: e.target.x() - group.from.x, y: e.target.y() - group.from.y }
+            useStore.getState().moveFurnitureGroup(group.base, delta)
+            return
+          }
           moveFurniture(item.id, { x: e.target.x(), y: e.target.y() }, !shiftRef.current)
           const moved = useStore
             .getState()
@@ -89,6 +125,7 @@ export function Furniture2D({ item, issues, selected, interactive, scale, shiftR
         }}
         onDragEnd={(e) => {
           e.cancelBubble = true
+          groupRef.current = null
           endGesture()
         }}
       >
@@ -130,7 +167,7 @@ export function Furniture2D({ item, issues, selected, interactive, scale, shiftR
           listening={false}
         />
       )}
-      {selected && interactive && !isRug && (
+      {alone && interactive && !isRug && (
         <Circle
           x={handleAt.x}
           y={handleAt.y}

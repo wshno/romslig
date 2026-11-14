@@ -1,6 +1,7 @@
 import type { ThreeEvent } from '@react-three/fiber'
 import { clampOpening, doorLeaf, norm, sub, wallDir, type Opening, type Wall } from '@romslig/shared'
 import { useStore } from '../store.ts'
+import { isSelected } from '../selection.ts'
 
 /** Width of a frame member seen from the front (m). */
 const FRAME = 0.05
@@ -17,8 +18,8 @@ const COLORS = { frame: '#ffffff', leaf: '#c8a27a', handle: '#4b5563', glass: '#
  * open to the side the door swings to. A doorway without a door is just the hole.
  */
 export function Opening3D({ wall, o, cutHeight }: { wall: Wall; o: Opening; cutHeight: number | null }) {
-  const selected = useStore((s) => s.selection?.id === o.id)
-  const select = useStore((s) => s.select)
+  const selected = useStore((s) => isSelected(s.selection, o.id))
+  const pick = useStore((s) => s.pick)
   if (o.kind === 'opening') return null
 
   const { start, end } = clampOpening(o, wall)
@@ -36,7 +37,7 @@ export function Opening3D({ wall, o, cutHeight }: { wall: Wall; o: Opening; cutH
   const frame = <meshStandardMaterial color={selected ? COLORS.selected : COLORS.frame} />
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
-    select({ kind: 'opening', id: o.id })
+    pick({ kind: 'opening', id: o.id }, e.nativeEvent.shiftKey)
   }
 
   return (

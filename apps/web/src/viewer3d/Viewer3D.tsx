@@ -15,6 +15,7 @@ import {
   type Wall,
 } from '@romslig/shared'
 import { useScenario, useStore } from '../store.ts'
+import { isSelected } from '../selection.ts'
 import { useFurnitureIssues } from '../hooks.ts'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
 import { distanceToFit } from './fitCamera.ts'
@@ -40,7 +41,7 @@ export function Viewer3D() {
   const [showLoadBearing, setShowLoadBearing] = useState(true)
   const [roomColors, setRoomColors] = useState(false)
   const issues = useFurnitureIssues()
-  const selectedId = useStore((s) => s.selection?.id)
+  const selection = useStore((s) => s.selection)
   const dragging3d = useStore((s) => s.dragging3d)
   const showInstallations = useStore((s) => s.showInstallations)
   const ceilingHeight = useStore((s) => s.project?.ceilingHeight ?? 2.4)
@@ -86,7 +87,10 @@ export function Viewer3D() {
       <Canvas
         shadows
         // A click that hits nothing selectable (the ground, the sky) lets go of the selection, as in 2D
-        onPointerMissed={() => useStore.getState().select(null)}
+        // (with Shift, which adds to the selection, it is kept)
+        onPointerMissed={(e) => {
+          if (!e.shiftKey) useStore.getState().select(null)
+        }}
         camera={{
           fov: 50,
           near: 0.05,
@@ -116,7 +120,7 @@ export function Viewer3D() {
         <FloorPicker pickRef={pickRef} />
         {showInstallations && <Installations3D scenario={scenario} ceilingHeight={ceilingHeight} />}
         {scenario.furniture.map((f) => (
-          <Furniture3D key={f.id} item={f} hasIssues={issues.has(f.id)} selected={selectedId === f.id} />
+          <Furniture3D key={f.id} item={f} hasIssues={issues.has(f.id)} selected={isSelected(selection, f.id)} />
         ))}
         {scenario.walls.map((w) => (
           <WallMesh
@@ -201,8 +205,8 @@ function Floor({ room, byType }: { room: Room; byType: boolean }) {
     return new THREE.ShapeGeometry(shape)
   }, [room.polygon])
   const surface = useMemo(() => floorSurface(room), [room])
-  const selected = useStore((s) => s.selection?.id === room.id)
-  const select = useStore((s) => s.select)
+  const selected = useStore((s) => isSelected(s.selection, room.id))
+  const pick = useStore((s) => s.pick)
   if (!geom) return null
   return (
     <mesh
@@ -212,7 +216,7 @@ function Floor({ room, byType }: { room: Room; byType: boolean }) {
       receiveShadow
       onClick={(e) => {
         e.stopPropagation()
-        select({ kind: 'room', id: room.id })
+        pick({ kind: 'room', id: room.id }, e.nativeEvent.shiftKey)
       }}
     >
       {byType || selected ? (
@@ -276,8 +280,8 @@ function WallMesh({
   cutHeight: number | null
   showLoadBearing: boolean
 }) {
-  const selected = useStore((s) => s.selection?.id === wall.id)
-  const select = useStore((s) => s.select)
+  const selected = useStore((s) => isSelected(s.selection, wall.id))
+  const pick = useStore((s) => s.pick)
   const color = wallColor(wall, selected, showLoadBearing)
   const d = wallDir(wall)
   const angle = -Math.atan2(d.y, d.x)
@@ -307,7 +311,7 @@ function WallMesh({
       rotation-y={angle}
       onClick={(e) => {
         e.stopPropagation()
-        select({ kind: 'wall', id: wall.id })
+        pick({ kind: 'wall', id: wall.id }, e.nativeEvent.shiftKey)
       }}
     >
       {pieces.map((p) => (

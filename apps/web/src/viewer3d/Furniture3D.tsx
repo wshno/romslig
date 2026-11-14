@@ -33,6 +33,9 @@ export function Furniture3D({ item, hasIssues, selected }: Props) {
     // Behind a wall or under a floor seen from this side: the click selects that, so leave the press to it too
     if (e.intersections[0]?.eventObject !== e.eventObject) return
     e.stopPropagation()
+    // Shift+click toggles it in the selection and moves nothing; a plain press selects it alone and
+    // drags it (in 3D one item moves at a time)
+    if (e.nativeEvent.shiftKey) return useStore.getState().pick({ kind: 'furniture', id: item.id }, true)
     useStore.getState().select({ kind: 'furniture', id: item.id })
     if (!e.ray.intersectPlane(FLOOR, hit)) return
     dragRef.current = { dx: item.x - hit.x, dz: item.y - hit.z }

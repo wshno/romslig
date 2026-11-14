@@ -27,8 +27,11 @@ export function OpeningShape(props: {
   wall: Wall
   scale: number
   selected: boolean
+  /** It can be dragged: it is the only thing selected. */
+  movable: boolean
   interactive: boolean
-  onSelect(): void
+  /** A click on it; `additive` with Shift (toggle it in the selection). */
+  onSelect(additive: boolean): void
   /** Called with true when a drag starts and false when it ends. */
   onDragging(dragging: boolean): void
 }) {
@@ -69,11 +72,11 @@ export function OpeningShape(props: {
       x={p0.x}
       y={p0.y}
       rotation={angle}
-      draggable={props.interactive && selected}
+      draggable={props.interactive && props.movable}
       onClick={(e) => {
         if (!props.interactive) return
         e.cancelBubble = true
-        props.onSelect()
+        props.onSelect(e.evt.shiftKey)
       }}
       onDragStart={(e) => {
         const project = useStore.getState().project
