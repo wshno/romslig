@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
@@ -7,4 +7,6 @@ export default defineConfig({
   // workspace packages). The repo is public, so they disclose nothing new.
   build: { sourcemap: true },
   server: { port: 5173, proxy: { '/api': 'http://localhost:8787' } },
+  // Component tests opt into jsdom per file (`// @vitest-environment jsdom`); the rest stay on node.
+  test: { setupFiles: ['./src/test/setup.ts'] },
 })

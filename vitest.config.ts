@@ -21,6 +21,7 @@ export default defineConfig({
       exclude: [
         '**/*.test.{ts,tsx}',
         '**/*.d.ts',
+        'apps/web/src/test/**',
         'apps/web/src/main.tsx',
         'apps/web/src/theme.ts',
         'apps/web/src/zod-config.ts',
