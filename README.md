@@ -1,5 +1,14 @@
 # Romslig
 
+| | |
+|---|---|
+| **Build and release** | [![E2E on main](https://github.com/wshno/romslig/actions/workflows/pr-e2e.yml/badge.svg?branch=main&event=push)](https://github.com/wshno/romslig/actions/workflows/pr-e2e.yml) [![Release](https://github.com/wshno/romslig/actions/workflows/container.yml/badge.svg)](https://github.com/wshno/romslig/actions/workflows/container.yml) [![Nightly preview E2E](https://github.com/wshno/romslig/actions/workflows/nightly-preview.yml/badge.svg?branch=main)](https://github.com/wshno/romslig/actions/workflows/nightly-preview.yml) |
+| **Tests** | [![Unit tests](https://wshno.github.io/romslig/badges/tests-unit.svg)](https://github.com/wshno/romslig/actions/workflows/pr-e2e.yml?query=branch%3Amain+event%3Apush) [![E2E tests](https://wshno.github.io/romslig/badges/tests-e2e.svg)](https://github.com/wshno/romslig/actions/workflows/pr-e2e.yml?query=branch%3Amain+event%3Apush) [![Build, lint and typecheck warnings](https://wshno.github.io/romslig/badges/warnings.svg)](https://github.com/wshno/romslig/actions/workflows/pr-e2e.yml?query=branch%3Amain+event%3Apush) |
+| **Coverage** | [![Frontend coverage](https://wshno.github.io/romslig/badges/coverage-frontend.svg)](https://github.com/wshno/romslig/actions/workflows/pr-e2e.yml?query=branch%3Amain+event%3Apush) [![Frontend branch coverage](https://wshno.github.io/romslig/badges/coverage-frontend-branches.svg)](https://github.com/wshno/romslig/actions/workflows/pr-e2e.yml?query=branch%3Amain+event%3Apush) [![Frontend unit+e2e coverage](https://wshno.github.io/romslig/badges/coverage-combined.svg)](https://github.com/wshno/romslig/actions/workflows/pr-e2e.yml?query=branch%3Amain+event%3Apush) [![E2E coverage](https://wshno.github.io/romslig/badges/coverage-e2e.svg)](https://github.com/wshno/romslig/actions/workflows/pr-e2e.yml?query=branch%3Amain+event%3Apush) |
+| **Security** | [![Image vulnerabilities (Grype)](https://wshno.github.io/romslig/badges/vulnerabilities.svg)](https://github.com/wshno/romslig/actions/workflows/pr-e2e.yml?query=branch%3Amain+event%3Apush) [![zizmor - GitHub Actions SAST](https://github.com/wshno/romslig/actions/workflows/zizmor.yml/badge.svg?branch=main)](https://github.com/wshno/romslig/actions/workflows/zizmor.yml) [![poutine - GitHub Actions SAST](https://github.com/wshno/romslig/actions/workflows/poutine.yml/badge.svg?branch=main)](https://github.com/wshno/romslig/actions/workflows/poutine.yml) |
+
+Badges: [https://wshno.github.io/romslig/](https://wshno.github.io/romslig/), from the quality summary of every E2E run on main ([`pages.yml`](https://github.com/wshno/romslig/blob/main/.github/workflows/pages.yml)).
+
 Romslig er en lokal web-app for å planlegge renovering: plantegning (JPG/PNG) → målriktig 2D-modell → 3D → (snart) innredning og AI-forslag.
 
 ## Kom i gang
