@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { emptyScenario, type Project } from '@romslig/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAi } from '../ai/client.ts'
 import { activeScenario, resetHistory, useStore } from '../store.ts'
+import { NARROW_QUERY } from '../device.ts'
+import { stubMatchMedia } from '../test/matchMedia.ts'
 import { Editor } from './Editor.tsx'
 
 // Konva and three.js can't draw in jsdom, and the panels have tests of their own.
@@ -355,5 +357,119 @@ describe('Editor', () => {
     await openEditor()
     act(() => useAi.setState({ keyDialogOpen: true }))
     expect(screen.getByRole('dialog', { name: '🔑 Anthropic-nøkkel' })).toBeInTheDocument()
+  })
+
+  it('keeps the desktop layout where matchMedia says the window is wide', async () => {
+    stubMatchMedia({ [NARROW_QUERY]: false })
+    await openEditor()
+    expect(screen.getByRole('button', { name: '2D + 3D' })).toHaveClass('active')
+    expect(screen.queryByRole('button', { name: 'Flere valg' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Egenskaper' })).not.toBeInTheDocument()
+    expect(screen.getByTitle('Ny variant (kopi av denne)')).toBeInTheDocument()
+  })
+
+  describe('on a phone', () => {
+    let media: ReturnType<typeof stubMatchMedia>
+    beforeEach(() => {
+      media = stubMatchMedia({ [NARROW_QUERY]: true })
+    })
+
+    it('draws the side-by-side view as 2D without changing it, and has no side-by-side choice', async () => {
+      await openEditor()
+      expect(screen.getByText('2D-plan')).toBeInTheDocument()
+      expect(screen.queryByText('3D-visning')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '2D' })).toHaveClass('active')
+      expect(screen.queryByRole('button', { name: '2D + 3D' })).not.toBeInTheDocument()
+      expect(state().view).toBe('split')
+
+      fireEvent.click(screen.getByRole('button', { name: '3D' }))
+      expect(screen.queryByText('2D-plan')).not.toBeInTheDocument()
+      act(() => state().setView('split'))
+
+      // Wide again: both side by side, as the store said all along
+      media.set(NARROW_QUERY, false)
+      expect(screen.getByText('2D-plan')).toBeInTheDocument()
+      expect(screen.getByText('3D-visning')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '2D + 3D' })).toHaveClass('active')
+    })
+
+    it('puts the inspector in a bottom sheet, and leaves it out in focus mode and when comparing', async () => {
+      await openEditor()
+      const sheet = screen.getByRole('region', { name: 'Egenskaper' })
+      expect(within(sheet).getByText('Inspektør')).toBeInTheDocument()
+      expect(screen.getAllByText('Inspektør')).toHaveLength(1)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Sammenlign' }))
+      expect(screen.queryByRole('region', { name: 'Egenskaper' })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: '2D' }))
+      expect(screen.getByRole('region', { name: 'Egenskaper' })).toBeInTheDocument()
+
+      act(() => state().setFocus(true))
+      expect(screen.queryByText('Inspektør')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Vegg/ })).not.toBeInTheDocument()
+    })
+
+    it('shows the save state as a dot, and in words when the save failed', async () => {
+      const { server } = await openEditor()
+      const status = screen.getByRole('status')
+      expect(status).toHaveClass('dot')
+      expect(status).toHaveTextContent('Lagret')
+
+      server.answers.push(400)
+      fireEvent.change(nameField(), { target: { value: 'Hytta' } })
+      hideTab()
+      const retry = await screen.findByRole('button', { name: 'Ikke lagret – prøv igjen' })
+      expect(retry).not.toHaveClass('dot')
+
+      fireEvent.click(retry)
+      await waitFor(() => expect(screen.getByRole('status')).toHaveClass('dot'))
+    })
+
+    it('keeps variants, focus, print and the key in the ⋯ menu', async () => {
+      await openEditor()
+      const prompt = vi.fn(() => 'Åpent kjøkken')
+      vi.stubGlobal('prompt', prompt)
+      expect(screen.queryByTitle('Ny variant (kopi av denne)')).not.toBeInTheDocument()
+      const more = screen.getByRole('button', { name: 'Flere valg' })
+      expect(more).toHaveAttribute('aria-expanded', 'false')
+
+      fireEvent.click(more)
+      expect(more).toHaveAttribute('aria-expanded', 'true')
+      const menu = screen.getByRole('group', { name: 'Flere valg' })
+      fireEvent.click(within(menu).getByTitle('Ny variant (kopi av denne)'))
+      expect(state().project!.scenarios).toHaveLength(2)
+      // A button in the menu closes it
+      expect(screen.queryByRole('group', { name: 'Flere valg' })).not.toBeInTheDocument()
+
+      // Picking a variant leaves it open
+      fireEvent.click(more)
+      const first = state().project!.scenarios[0]!.id
+      fireEvent.change(within(screen.getByRole('group', { name: 'Flere valg' })).getByRole('combobox'), {
+        target: { value: first },
+      })
+      expect(state().project!.activeScenarioId).toBe(first)
+      expect(screen.getByRole('group', { name: 'Flere valg' })).toBeInTheDocument()
+
+      // Escape and a tap outside close it
+      key('Escape')
+      expect(screen.queryByRole('group', { name: 'Flere valg' })).not.toBeInTheDocument()
+      fireEvent.click(more)
+      fireEvent.pointerDown(screen.getByText('2D-plan'))
+      expect(screen.queryByRole('group', { name: 'Flere valg' })).not.toBeInTheDocument()
+
+      fireEvent.click(more)
+      fireEvent.click(within(screen.getByRole('group', { name: 'Flere valg' })).getByRole('button', { name: 'Fokus' }))
+      expect(state().focus).toBe(true)
+      fireEvent.click(more)
+      fireEvent.click(screen.getByRole('button', { name: 'Skriv ut' }))
+      expect(window.location.hash).toBe('#/p/p_ed/print')
+    })
+
+    it('keeps the tool settings in a group of their own', async () => {
+      await openEditor()
+      expect(document.querySelector('.tool-options')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: /Vegg/ }))
+      expect(screen.getByRole('combobox', { name: 'Tykkelse' }).closest('.tool-options')).not.toBeNull()
+    })
   })
 })

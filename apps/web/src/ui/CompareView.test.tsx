@@ -3,6 +3,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { emptyScenario, type Project } from '@romslig/shared'
 import { activeScenario, resetHistory, useStore } from '../store.ts'
+import { NARROW_QUERY } from '../device.ts'
+import { stubMatchMedia } from '../test/matchMedia.ts'
 import { CompareView } from './CompareView.tsx'
 
 // Konva needs a real canvas; the panes are stood in for by their titles.
@@ -118,5 +120,29 @@ describe('CompareView', () => {
 
     expect(s().project!.activeScenarioId).toBe(after)
     expect(s().view).toBe('split')
+  })
+
+  it('folds the differences away on a phone, and opens them on a tap', () => {
+    stubMatchMedia({ [NARROW_QUERY]: true })
+    try {
+      twoVariants()
+      const { container } = render(<CompareView />)
+      const details = container.querySelector('details.compare-summary') as HTMLDetailsElement
+      expect(details).not.toBeNull()
+      expect(details.open).toBe(false)
+      expect(within(details).getByText('1 vegg fjernet')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('Forskjeller'))
+      expect(details.open).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('shows the differences as before on a wide screen', () => {
+    twoVariants()
+    const { container } = render(<CompareView />)
+    expect(container.querySelector('details')).toBeNull()
+    expect(container.querySelector('div.compare-summary')).not.toBeNull()
   })
 })

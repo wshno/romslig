@@ -15,10 +15,14 @@ const baseURL = process.env.BASE_URL ?? 'http://localhost:5173'
 // every other run leaves them out: they work on production data and belong to that job alone. Set per
 // project, not at the top level, so the remote run's setup project (the Authelia login) still runs.
 const productionSmoke = process.env.E2E_SUITE === 'production-smoke'
-const suite = productionSmoke
-  ? { grep: /@production-smoke/ }
-  : // Specs that need the compose stack itself (e.g. a second user through the second proxy port).
-    { grepInvert: remote ? [/@local-only/, /@production-smoke/] : /@production-smoke/ }
+// Specs that need the compose stack itself (e.g. a second user through the second proxy port).
+const leftOut = remote ? [/@local-only/, /@production-smoke/] : [/@production-smoke/]
+// The desktop project leaves out the phone specs (@mobile); the mobile project runs only those.
+const suite = productionSmoke ? { grep: /@production-smoke/ } : { grepInvert: [...leftOut, /@mobile/] }
+// The phone layout runs on an emulated Pixel 7 (412 px wide, touch, coarse pointer). Not in the
+// production smoke run, which is one desktop test against production data.
+const withMobile = !productionSmoke
+const mobileSuite = { grep: /@mobile/, grepInvert: leftOut }
 
 // Shared defaults (testDir ./tests, forbidOnly, retries, the github/html/json CI reporters at the
 // paths the reusable reads, trace, screenshot and video on failure) come from @wshno/playwright-config.
@@ -66,6 +70,21 @@ export default definePlaywrightConfig({
           dependencies: ['setup'],
           ...suite,
         },
+        ...(withMobile
+          ? [
+              {
+                name: 'mobile',
+                use: { ...devices['Pixel 7'], storageState: authFile },
+                dependencies: ['setup'],
+                ...mobileSuite,
+              },
+            ]
+          : []),
       ]
-    : [{ name: 'chromium', testIgnore: /auth\.setup\.ts/, use: { ...devices['Desktop Chrome'] }, ...suite }],
+    : [
+        { name: 'chromium', testIgnore: /auth\.setup\.ts/, use: { ...devices['Desktop Chrome'] }, ...suite },
+        ...(withMobile
+          ? [{ name: 'mobile', testIgnore: /auth\.setup\.ts/, use: { ...devices['Pixel 7'] }, ...mobileSuite }]
+          : []),
+      ],
 })
