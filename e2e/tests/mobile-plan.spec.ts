@@ -318,7 +318,10 @@ test.describe('@mobile fingers on the plan', () => {
 
       // Nothing selected (a tap on empty space), then «Velg flere» and a tap on each
       p = await plan(page)
-      await tap(page, p.at(p.box.width / 2 - 40, 40))
+      // Near the top right of the plan: clear of both pieces, and of the sheet once a selection has
+      // brought it up over the lower half
+      const empty = p.at(p.box.width / 2 - 40, 150 - p.box.height / 2)
+      await tap(page, empty)
       await expect(page.locator('.inspector-header h3')).toHaveCount(0)
       const many = drawBar(page).getByRole('button', { name: 'Velg flere' })
       await many.tap()
@@ -329,7 +332,7 @@ test.describe('@mobile fingers on the plan', () => {
       await expect(summary).toHaveText('2 valgt: 2 møbler')
 
       // A tap on empty space keeps both; another tap on one takes it out again
-      await tap(page, p.at(p.box.width / 2 - 40, 40))
+      await tap(page, empty)
       await expect(summary).toHaveText('2 valgt: 2 møbler')
       await tap(page, p.screen(table))
       await expect(summary).toHaveCount(0)
