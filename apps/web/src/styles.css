@@ -190,7 +190,9 @@ select {
 
 /* Editor layout */
 .editor {
+  /* dvh: on a phone 100vh is the height with the address bar hidden, taller than what shows */
   height: calc(100vh - var(--footer-h));
+  height: calc(100dvh - var(--footer-h));
   display: grid;
   grid-template-columns: 76px 1fr 300px;
   grid-template-rows: 48px 1fr;
@@ -587,10 +589,17 @@ select {
 .editor.wide-inspector {
   grid-template-columns: 76px 1fr 400px;
 }
+/* The assistant fills what the panel has under its tabs, whether that is the desktop column or the
+   phone's bottom sheet, so only its messages scroll */
+.inspector:has(> .assistant) {
+  display: flex;
+  flex-direction: column;
+}
 .assistant {
   display: grid;
   grid-template-rows: auto 1fr auto;
-  height: calc(100vh - var(--footer-h) - 48px - 41px);
+  flex: 1;
+  min-height: 0;
 }
 .assistant-head {
   padding: 10px 14px;
@@ -1038,4 +1047,321 @@ select {
 }
 .site-footer .mismatch {
   color: var(--danger);
+}
+
+/* ================================================================================================
+   Phones and tablets. Everything from here down leaves the desktop layout (wider than 1100px) as it
+   was; the phone breakpoint must match NARROW_QUERY in device.ts.
+   ================================================================================================ */
+
+/* Shared pieces, at every width */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* The toolbar's two groups only shape the phone layout; elsewhere their children sit in the column
+   as before */
+.tool-buttons,
+.tool-options {
+  display: contents;
+}
+/* A swipe that reaches the end of the plan does not pull the page (or reload it) */
+.editor {
+  overscroll-behavior: none;
+}
+
+/* Tablet (721–1100px): narrower side columns, and a top bar that scrolls sideways rather than
+   pushing the page wider */
+@media (min-width: 721px) and (max-width: 1100px) {
+  .editor {
+    grid-template-columns: 60px 1fr 260px;
+  }
+  .editor.wide-inspector {
+    grid-template-columns: 60px 1fr 320px;
+  }
+  .topbar {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar > * {
+    flex: none;
+  }
+  .topbar .spacer {
+    flex: 1;
+  }
+  .project-name {
+    width: 150px;
+  }
+  .scenario .muted {
+    display: none;
+  }
+  .scenario select {
+    max-width: 150px;
+  }
+  .save-state {
+    min-width: 0;
+  }
+  .toolbar .label {
+    font-size: 10px;
+  }
+}
+
+/* Phone (up to 720px): top bar, view and toolbar stacked; the inspector is a bottom sheet over the
+   view (BottomSheet.tsx) */
+@media (max-width: 720px) {
+  .editor,
+  .editor.wide-inspector {
+    /* The site footer is hidden here, so the editor takes the whole height */
+    height: 100vh;
+    height: 100dvh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'top' 'views' 'tools';
+  }
+  .editor.focus {
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: 'top' 'views';
+  }
+  /* The project list: less air above it, and nothing in it wider than the screen */
+  .home {
+    margin: 16px auto;
+    padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .project-list .project-actions {
+    flex-wrap: wrap;
+  }
+  /* 22px of versions is a lot on a phone; the project list still shows them */
+  .editor ~ .site-footer {
+    display: none;
+  }
+  .site-footer {
+    height: auto;
+    min-height: calc(var(--footer-h) + env(safe-area-inset-bottom));
+    padding: 0 max(12px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(12px, env(safe-area-inset-left));
+  }
+
+  /* Top bar: back, name (gives way first), undo, redo, view, save dot, ⋯ */
+  .topbar {
+    gap: 4px;
+    min-height: calc(48px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) max(6px, env(safe-area-inset-right)) 0 max(6px, env(safe-area-inset-left));
+  }
+  .topbar .back {
+    padding: 0 4px;
+  }
+  .project-name {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 40px;
+    padding-inline: 4px;
+    text-overflow: ellipsis;
+  }
+  .topbar > button,
+  .topbar .segmented button,
+  .topbar-more > button {
+    flex: none;
+    padding: 6px 8px;
+  }
+  .topbar .segmented {
+    flex: none;
+  }
+  .save-state {
+    min-width: 0;
+  }
+  .save-state.dot {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--ok);
+  }
+  .save-state.dot.saving {
+    background: #f59e0b;
+  }
+  .topbar-more {
+    position: relative;
+    flex: none;
+  }
+  .topbar-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 40;
+    width: min(320px, calc(100vw - 16px));
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px #0003;
+  }
+  .topbar-menu .scenario {
+    flex-wrap: wrap;
+  }
+  .topbar-menu .scenario select {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+  }
+  .topbar-menu .row {
+    flex-wrap: wrap;
+  }
+
+  /* Toolbar: one row along the bottom that scrolls sideways, the picked tool's options above it */
+  .toolbar {
+    flex-direction: column;
+    gap: 0;
+    padding: 4px max(4px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom))
+      max(4px, env(safe-area-inset-left));
+    border-right: none;
+    border-top: 1px solid var(--border);
+  }
+  .tool-buttons {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .tool-buttons button {
+    flex: none;
+    min-width: 54px;
+  }
+  .tool-options {
+    display: flex;
+    order: -1;
+    gap: 12px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 2px 2px 6px;
+  }
+  .toolbar .thickness {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 0;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  /* The inspector as a bottom sheet */
+  .sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
+    background: var(--panel);
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -4px 16px #0002;
+    transition: height 0.2s ease;
+  }
+  .sheet.half {
+    height: 50%;
+  }
+  .sheet.full {
+    height: 100%;
+  }
+  .sheet.dragging {
+    transition: none;
+  }
+  .sheet-handle {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: grab;
+    /* The drag moves the sheet, it does not scroll the page */
+    touch-action: none;
+  }
+  .sheet-grip {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: #cbd5e1;
+  }
+  .sheet-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .sheet-body > .inspector {
+    flex: 1;
+    min-height: 0;
+    border-left: none;
+    overscroll-behavior: contain;
+  }
+  /* Closed, only the tabs show */
+  .sheet.closed:not(.dragging) .sheet-body > .inspector > :not(.tabs) {
+    display: none;
+  }
+
+  /* Compare: the two plans one above the other, the differences folded away at the bottom */
+  .compare {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  .compare-head select {
+    max-width: 130px;
+  }
+  .compare-panes {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .compare-panes > :first-child {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .compare-summary {
+    max-height: 45dvh;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+  .compare-summary > summary {
+    padding: 4px 0;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* The buttons over the 2D and 3D views: one row that scrolls sideways instead of wrapping over
+     half the drawing */
+  .plan2d-overlay,
+  .viewer3d-overlay {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .plan2d-overlay > *,
+  .viewer3d-overlay > * {
+    flex: none;
+    white-space: nowrap;
+  }
+}
+
+/* A finger, at any width: fields that iOS does not zoom into (it does below 16px), and buttons big
+   enough to hit */
+@media (pointer: coarse) {
+  :root :is(input, select, textarea),
+  .toolbar .thickness select {
+    font-size: 16px;
+  }
+  button:not(.link) {
+    min-height: 40px;
+  }
 }

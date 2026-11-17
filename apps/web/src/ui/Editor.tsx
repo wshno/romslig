@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api.ts'
 import { Plan2D } from '../editor2d/Plan2D.tsx'
 import { Viewer3D } from '../viewer3d/Viewer3D.tsx'
 import { activeScenario, redo, resetHistory, undo, useStore, type Tool, type ViewMode } from '../store.ts'
 import { useHistory, useTypingAsOneUndoStep } from '../hooks.ts'
+import { useIsNarrow } from '../device.ts'
 import { Inspector } from './Inspector.tsx'
 import { CompareView } from './CompareView.tsx'
+import { BottomSheet } from './BottomSheet.tsx'
 import { ApiKeyButton, ApiKeyDialog } from './ApiKeyDialog.tsx'
 import { loadConfig, useAi } from '../ai/client.ts'
 import { Saver, type SaveState } from '../saver.ts'
@@ -61,6 +63,8 @@ export function Editor({ projectId }: { projectId: string }) {
   const [save, setSave] = useState<SaveStatus>({ state: 'saved' })
   const inspectorWide = useStore((s) => s.inspectorTab === 'assistent' && !s.selection.length)
   const focus = useStore((s) => s.focus)
+  const narrow = useIsNarrow()
+  const comparing = useStore((s) => s.view === 'compare')
   const keyDialogOpen = useAi((s) => s.keyDialogOpen)
   const typing = useTypingAsOneUndoStep()
 
@@ -204,8 +208,15 @@ export function Editor({ projectId }: { projectId: string }) {
       {!focus && <Toolbar />}
       <main className="views">
         <ViewPanes />
+        {/* On a phone the inspector is a sheet over the bottom of the view instead of a column. Not
+            while comparing: that view is read-only, and the sheet would cover its differences */}
+        {!focus && narrow && !comparing && (
+          <BottomSheet label="Egenskaper">
+            <Inspector />
+          </BottomSheet>
+        )}
       </main>
-      {!focus && <Inspector />}
+      {!focus && !narrow && <Inspector />}
       {conflict && (
         <div className="modal-backdrop">
           <div className="modal" role="alertdialog" aria-labelledby="conflict-title">
@@ -234,8 +245,17 @@ export function Editor({ projectId }: { projectId: string }) {
   )
 }
 
+/**
+ * The view that is drawn. A phone has no room for 2D and 3D side by side, so there `split` is drawn
+ * as 2D. The store keeps `split`, so a window that gets wide again shows both again.
+ */
+function shownView(view: ViewMode, narrow: boolean): ViewMode {
+  return narrow && view === 'split' ? '2d' : view
+}
+
 function ViewPanes() {
-  const view = useStore((s) => s.view)
+  const stored = useStore((s) => s.view)
+  const view = shownView(stored, useIsNarrow())
   if (view === 'compare') return <CompareView />
   return (
     <div className={`views-inner ${view}`}>
@@ -245,79 +265,100 @@ function ViewPanes() {
   )
 }
 
+/**
+ * The bar over the editor. On a phone it keeps what is used all the time (back, name, undo, redo,
+ * the view, the save state) and moves the rest into a "⋯" menu: the same controls, not copies.
+ */
 function TopBar({ save, onRetry }: { save: SaveStatus; onRetry: () => void }) {
   const project = useStore((s) => s.project)!
-  const view = useStore((s) => s.view)
+  const narrow = useIsNarrow()
+  const stored = useStore((s) => s.view)
+  const view = shownView(stored, narrow)
   const focus = useStore((s) => s.focus)
+  const [menuOpen, setMenuOpen] = useState(false)
   const { canUndo, canRedo } = useHistory()
   const { setView, updateProject, setActiveScenario, duplicateScenario, renameScenario, deleteScenario } =
     useStore.getState()
   const scenario = activeScenario(project)
   const views: { id: ViewMode; label: string }[] = [
     { id: '2d', label: '2D' },
-    { id: 'split', label: '2D + 3D' },
+    // No room for both side by side on a phone
+    ...(narrow ? [] : [{ id: 'split' as const, label: '2D + 3D' }]),
     { id: '3d', label: '3D' },
     { id: 'compare', label: 'Sammenlign' },
   ]
-  return (
-    <header className="topbar">
-      <a href="#/" className="back" title="Alle prosjekter">
-        ←
-      </a>
-      <input
-        className="project-name"
-        value={project.name}
-        onChange={(e) => updateProject((p) => ({ ...p, name: e.target.value }))}
-      />
-      <div className="scenario">
-        <span className="muted">Variant:</span>
-        <select value={scenario.id} onChange={(e) => setActiveScenario(e.target.value)}>
-          {project.scenarios.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <button
-          title="Ny variant (kopi av denne)"
-          onClick={() => {
-            const name = prompt('Navn på ny variant', `${scenario.name} (kopi)`)
-            if (name) duplicateScenario(name)
-          }}
-        >
-          ＋
-        </button>
-        <button
-          title="Gi nytt navn"
-          onClick={() => {
-            const name = prompt('Nytt navn', scenario.name)
-            if (name) renameScenario(scenario.id, name)
-          }}
-        >
-          ✎
-        </button>
-        <button
-          title="Slett variant"
-          disabled={project.scenarios.length <= 1}
-          onClick={() => confirm(`Slette varianten «${scenario.name}»?`) && deleteScenario(scenario.id)}
-        >
-          🗑
-        </button>
-      </div>
-      <div className="spacer" />
-      <button title="Angre (Ctrl+Z)" onClick={undo} disabled={!canUndo}>
+
+  const back = (
+    <a href="#/" className="back" title="Alle prosjekter" aria-label="Alle prosjekter">
+      ←
+    </a>
+  )
+  const nameField = (
+    <input
+      className="project-name"
+      aria-label="Prosjektnavn"
+      value={project.name}
+      onChange={(e) => updateProject((p) => ({ ...p, name: e.target.value }))}
+    />
+  )
+  const scenarios = (
+    <div className="scenario">
+      <span className="muted">Variant:</span>
+      <select value={scenario.id} onChange={(e) => setActiveScenario(e.target.value)}>
+        {project.scenarios.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+      <button
+        title="Ny variant (kopi av denne)"
+        onClick={() => {
+          const name = prompt('Navn på ny variant', `${scenario.name} (kopi)`)
+          if (name) duplicateScenario(name)
+        }}
+      >
+        ＋
+      </button>
+      <button
+        title="Gi nytt navn"
+        onClick={() => {
+          const name = prompt('Nytt navn', scenario.name)
+          if (name) renameScenario(scenario.id, name)
+        }}
+      >
+        ✎
+      </button>
+      <button
+        title="Slett variant"
+        disabled={project.scenarios.length <= 1}
+        onClick={() => confirm(`Slette varianten «${scenario.name}»?`) && deleteScenario(scenario.id)}
+      >
+        🗑
+      </button>
+    </div>
+  )
+  const undoRedo = (
+    <>
+      <button title="Angre (Ctrl+Z)" aria-label="Angre" onClick={undo} disabled={!canUndo}>
         ↶
       </button>
-      <button title="Gjør om (Ctrl+Y)" onClick={redo} disabled={!canRedo}>
+      <button title="Gjør om (Ctrl+Y)" aria-label="Gjør om" onClick={redo} disabled={!canRedo}>
         ↷
       </button>
-      <div className="segmented">
-        {views.map((v) => (
-          <button key={v.id} className={view === v.id ? 'active' : ''} onClick={() => setView(v.id)}>
-            {v.label}
-          </button>
-        ))}
-      </div>
+    </>
+  )
+  const viewPicker = (
+    <div className="segmented">
+      {views.map((v) => (
+        <button key={v.id} className={view === v.id ? 'active' : ''} onClick={() => setView(v.id)}>
+          {v.label}
+        </button>
+      ))}
+    </div>
+  )
+  const extras = (
+    <>
       <button
         className={focus ? 'active' : ''}
         aria-pressed={focus}
@@ -334,40 +375,149 @@ function TopBar({ save, onRetry }: { save: SaveStatus; onRetry: () => void }) {
         🖨
       </button>
       <ApiKeyButton />
-      {save.state === 'retrying' || save.state === 'error' ? (
-        <button className={`save-state ${save.state}`} title={save.message} onClick={onRetry}>
-          {SAVE_LABELS[save.state]}
-        </button>
-      ) : (
-        <span className={`save-state ${save.state}`} role="status">
-          {SAVE_LABELS[save.state]}
-        </span>
-      )}
+    </>
+  )
+  // On a phone a dot, with the words kept for screen readers (and the e2e helpers that wait for
+  // them); the states that need the user's attention keep their full text
+  const quiet = narrow && (save.state === 'saved' || save.state === 'saving')
+  const saveState =
+    save.state === 'retrying' || save.state === 'error' ? (
+      <button className={`save-state ${save.state}`} title={save.message} onClick={onRetry}>
+        {SAVE_LABELS[save.state]}
+      </button>
+    ) : (
+      <span
+        className={['save-state', save.state, quiet && 'dot'].filter(Boolean).join(' ')}
+        role="status"
+        title={quiet ? SAVE_LABELS[save.state] : undefined}
+      >
+        {quiet ? <span className="visually-hidden">{SAVE_LABELS[save.state]}</span> : SAVE_LABELS[save.state]}
+      </span>
+    )
+
+  if (narrow)
+    return (
+      <header className="topbar">
+        {back}
+        {nameField}
+        {undoRedo}
+        {viewPicker}
+        {saveState}
+        <TopBarMenu open={menuOpen} setOpen={setMenuOpen}>
+          {scenarios}
+          <div className="row">{extras}</div>
+        </TopBarMenu>
+      </header>
+    )
+  return (
+    <header className="topbar">
+      {back}
+      {nameField}
+      {scenarios}
+      <div className="spacer" />
+      {undoRedo}
+      {viewPicker}
+      {extras}
+      {saveState}
     </header>
   )
 }
 
+/**
+ * The phone top bar's "⋯" menu. Closes on a tap outside it, on Escape, and after a button in it is
+ * used; picking another variant leaves it open.
+ */
+function TopBarMenu({
+  open,
+  setOpen,
+  children,
+}: {
+  open: boolean
+  setOpen: (open: boolean) => void
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const menuId = useId()
+  useEffect(() => {
+    if (!open) return
+    const outside = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', outside)
+    window.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      window.removeEventListener('keydown', escape)
+    }
+  }, [open, setOpen])
+  return (
+    <div className="topbar-more" ref={ref}>
+      <button
+        className={open ? 'active' : ''}
+        aria-label="Flere valg"
+        aria-expanded={open}
+        aria-controls={menuId}
+        onClick={() => setOpen(!open)}
+      >
+        ⋯
+      </button>
+      {open && (
+        <div
+          id={menuId}
+          className="topbar-menu"
+          role="group"
+          aria-label="Flere valg"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('button')) setOpen(false)
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Toolbar() {
+  const tool = useStore((s) => s.tool)
+  const { setTool } = useStore.getState()
+  const hasOptions = tool === 'wall' || tool === 'fixture' || tool === 'run'
+  // Two groups that the desktop column does not see (display: contents): on a phone the tools are one
+  // row along the bottom, and the picked tool's options a row of their own above it
+  return (
+    <nav className="toolbar">
+      <div className="tool-buttons">
+        {TOOLS.map((t) => (
+          <button
+            key={t.id}
+            className={tool === t.id ? 'active' : ''}
+            onClick={() => setTool(t.id)}
+            title={`${t.label} (${t.key.toUpperCase()})`}
+          >
+            <span className="icon">{t.icon}</span>
+            <span className="label">{t.label}</span>
+          </button>
+        ))}
+      </div>
+      {hasOptions && <ToolOptions />}
+    </nav>
+  )
+}
+
+/** The settings of the wall, fixture and run tools. */
+function ToolOptions() {
   const tool = useStore((s) => s.tool)
   const thickness = useStore((s) => s.wallThickness)
   const fixtureKind = useStore((s) => s.fixtureKind)
   const runKind = useStore((s) => s.runKind)
   const runPlacement = useStore((s) => s.runPlacement)
   const setInstallationSettings = useStore((s) => s.setInstallationSettings)
-  const { setTool, setWallThickness } = useStore.getState()
+  const { setWallThickness } = useStore.getState()
   return (
-    <nav className="toolbar">
-      {TOOLS.map((t) => (
-        <button
-          key={t.id}
-          className={tool === t.id ? 'active' : ''}
-          onClick={() => setTool(t.id)}
-          title={`${t.label} (${t.key.toUpperCase()})`}
-        >
-          <span className="icon">{t.icon}</span>
-          <span className="label">{t.label}</span>
-        </button>
-      ))}
+    <div className="tool-options">
       {tool === 'wall' && (
         <label className="thickness" title="Veggtykkelse for nye vegger">
           Tykkelse
@@ -423,6 +573,6 @@ function Toolbar() {
           </label>
         </>
       )}
-    </nav>
+    </div>
   )
 }

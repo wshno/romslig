@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { compareScenarios, type FurnitureCount, type Project, type Scenario } from '@romslig/shared'
 import { Plan2D, type PlanView } from '../editor2d/Plan2D.tsx'
 import { activeScenario, useStore } from '../store.ts'
+import { useIsNarrow } from '../device.ts'
 import { fmtM2 } from '../theme.ts'
 
 /** Sensible "before" for a variant: its parent, else the first other variant. */
@@ -25,6 +26,7 @@ export function CompareView() {
   const [afterId, setAfterId] = useState(current.id)
   const [beforeId, setBeforeId] = useState(() => defaultBefore(project, current))
   const [view, setView] = useState<PlanView | null>(null)
+  const narrow = useIsNarrow()
   const before = project.scenarios.find((s) => s.id === beforeId) ?? current
   const after = project.scenarios.find((s) => s.id === afterId) ?? current
   const diff = useMemo(() => compareScenarios(before, after), [before, after])
@@ -95,7 +97,7 @@ export function CompareView() {
           title={`Etter: ${after.name}`}
         />
       </div>
-      <div className="compare-summary">
+      <CompareSummary narrow={narrow}>
         {before.id === after.id ? (
           <p className="muted">Velg to forskjellige varianter for å se forskjellene.</p>
         ) : (
@@ -165,7 +167,21 @@ export function CompareView() {
             </div>
           </>
         )}
-      </div>
+      </CompareSummary>
     </div>
+  )
+}
+
+/**
+ * The differences under the two plans. On a phone they fold away, so the plans (one above the other
+ * there) get the height until the differences are asked for.
+ */
+function CompareSummary({ narrow, children }: { narrow: boolean; children: ReactNode }) {
+  if (!narrow) return <div className="compare-summary">{children}</div>
+  return (
+    <details className="compare-summary">
+      <summary>Forskjeller</summary>
+      {children}
+    </details>
   )
 }
