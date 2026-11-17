@@ -25,6 +25,7 @@ import {
   type LabelVariant,
 } from './labelFit.ts'
 import { LABEL_FONT_FAMILY, measureText } from './measureText.ts'
+import { isAdditive } from './modifiers.ts'
 import { PLATE_FILL, PlateText } from './planShapes.tsx'
 
 /** Size of the stated-area line relative to the name and area. */
@@ -89,7 +90,7 @@ export function RoomShape({ room, selected, interactive }: { room: Room; selecte
       onPointerClick={(e) => {
         if (!interactive) return
         e.cancelBubble = true
-        pick({ kind: 'room', id: room.id }, e.evt.shiftKey)
+        pick({ kind: 'room', id: room.id }, isAdditive(e.evt))
       }}
     />
   )

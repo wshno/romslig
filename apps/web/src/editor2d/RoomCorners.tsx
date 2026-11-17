@@ -15,6 +15,7 @@ import {
 import { beginGesture, endGesture, useStore } from '../store.ts'
 import { fmtM2 } from '../theme.ts'
 import { handleHitStroke, useHitSizes } from './hit.ts'
+import { isAdditive, isFreeAngle, isNoGrid } from './modifiers.ts'
 import { Label } from './planShapes.tsx'
 import { SNAP_GRID } from './planStyle.ts'
 
@@ -88,7 +89,7 @@ export function RoomCorners({
         onMouseLeave={(e) => setCursor(e, '')}
         onPointerClick={(e) => {
           e.cancelBubble = true
-          if (e.evt.shiftKey) useStore.getState().pick({ kind: 'room', id: room.id }, true)
+          if (isAdditive(e.evt)) useStore.getState().pick({ kind: 'room', id: room.id }, true)
         }}
         onPointerDblClick={(e) => {
           e.cancelBubble = true
@@ -142,8 +143,8 @@ export function RoomCorners({
           {
             walls,
             tolerance: hit.snap / scale,
-            ortho: !shiftRef.current,
-            grid: e.evt.altKey ? undefined : SNAP_GRID,
+            ortho: !isFreeAngle(shiftRef.current),
+            grid: isNoGrid(e.evt) ? undefined : SNAP_GRID,
           },
         )
         const next = moveVertex(drag.base, i, r.point)

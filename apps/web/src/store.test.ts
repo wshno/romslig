@@ -1,6 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { emptyScenario, type Project } from '@romslig/shared'
-import { activeScenario, beginGesture, endGesture, mergeSteps, redo, resetHistory, undo, useStore } from './store.ts'
+import {
+  activeScenario,
+  beginGesture,
+  endGesture,
+  mergeSteps,
+  NO_MODIFIERS,
+  redo,
+  resetHistory,
+  undo,
+  useStore,
+} from './store.ts'
 
 function newProject(): Project {
   const scenario = emptyScenario()
@@ -515,5 +525,77 @@ describe('escape', () => {
     state().escape()
     expect(state().selection).toEqual([])
     expect(steps()).toBe(before)
+  })
+})
+
+describe('modifier toggles', () => {
+  const wall = (x: number) => ({ kind: 'wall' as const, id: addWall(x).id })
+
+  beforeEach(() => {
+    state().setTool('select')
+    useStore.setState({ modifiers: NO_MODIFIERS })
+  })
+
+  it('start off, and each one is switched on and off by itself', () => {
+    expect(state().modifiers).toEqual({ additive: false, freeAngle: false, noGrid: false })
+    state().setModifier('freeAngle', true)
+    state().setModifier('noGrid', true)
+    expect(state().modifiers).toEqual({ additive: false, freeAngle: true, noGrid: true })
+    state().setModifier('freeAngle', false)
+    expect(state().modifiers).toEqual({ additive: false, freeAngle: false, noGrid: true })
+  })
+
+  it('are not part of the undo history', () => {
+    addWall()
+    const before = steps()
+    state().setModifier('additive', true)
+    state().setModifier('noGrid', true)
+    expect(steps()).toBe(before)
+    undo()
+    expect(state().modifiers.additive).toBe(true)
+  })
+
+  it('are switched off when the tool changes, however it changes', () => {
+    state().setTool('wall')
+    state().setModifier('freeAngle', true)
+    state().setModifier('noGrid', true)
+    state().setTool('room')
+    expect(state().modifiers).toEqual({ additive: false, freeAngle: false, noGrid: false })
+
+    // Escape (back to Velg) and focus mode change the tool too
+    state().setModifier('noGrid', true)
+    state().escape()
+    expect(state().tool).toBe('select')
+    expect(state().modifiers.noGrid).toBe(false)
+    state().setTool('wall')
+    state().setModifier('freeAngle', true)
+    state().setFocus(true)
+    expect(state().modifiers.freeAngle).toBe(false)
+    state().setFocus(false)
+  })
+
+  it('stay on while the tool stays, also when the same tool is picked again', () => {
+    state().setModifier('additive', true)
+    state().setTool('select')
+    expect(state().modifiers.additive).toBe(true)
+  })
+
+  it('«Velg flere» makes a pick add to the selection, as Shift does', () => {
+    const a = wall(0)
+    const b = wall(100)
+    state().pick(a, false)
+    state().pick(b, false)
+    expect(state().selection).toEqual([b])
+
+    state().setModifier('additive', true)
+    state().pick(a, false)
+    expect(state().selection).toEqual([b, a])
+    // ...and a second pick takes it out again
+    state().pick(b, false)
+    expect(state().selection).toEqual([a])
+
+    state().setModifier('additive', false)
+    state().pick(b, false)
+    expect(state().selection).toEqual([b])
   })
 })

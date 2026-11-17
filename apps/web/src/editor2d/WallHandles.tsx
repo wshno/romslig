@@ -18,6 +18,7 @@ import {
 import { beginGesture, endGesture, useStore } from '../store.ts'
 import { fmtM } from '../theme.ts'
 import { handleHitStroke, useHitSizes } from './hit.ts'
+import { isAdditive, isFreeAngle, isNoGrid } from './modifiers.ts'
 import { Label } from './planShapes.tsx'
 import { SNAP_GRID, wallQuad } from './planStyle.ts'
 
@@ -66,8 +67,8 @@ export function WallHandles({
             walls: drag.still,
             anchor: end === 'a' ? wall.b : wall.a,
             tolerance: hit.snap / scale,
-            ortho: !shiftRef.current,
-            grid: e.evt.altKey ? undefined : SNAP_GRID,
+            ortho: !isFreeAngle(shiftRef.current),
+            grid: isNoGrid(e.evt) ? undefined : SNAP_GRID,
           },
         )
         e.target.position(r.point)
@@ -137,7 +138,7 @@ export function WallBody({
       onPointerClick={(e) => {
         e.cancelBubble = true
         // It lies over the selected wall, so it takes the Shift+click that toggles the wall out
-        if (e.evt.shiftKey) useStore.getState().pick({ kind: 'wall', id: wall.id }, true)
+        if (isAdditive(e.evt)) useStore.getState().pick({ kind: 'wall', id: wall.id }, true)
       }}
       onDragStart={(e) => {
         const from = pointerOf(e)
@@ -153,7 +154,7 @@ export function WallBody({
         const p = pointerOf(e)
         if (!drag || !p) return
         const raw = dot(sub(p, drag.from), drag.normal)
-        const offset = e.evt.altKey ? raw : Math.round(raw / SNAP_GRID) * SNAP_GRID
+        const offset = isNoGrid(e.evt) ? raw : Math.round(raw / SNAP_GRID) * SNAP_GRID
         onMove(offset)
         useStore.getState().dragWall(drag.base, wall.id, offset)
       }}

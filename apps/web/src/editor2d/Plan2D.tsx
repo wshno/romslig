@@ -20,9 +20,12 @@ import {
   type Vec2,
 } from '@romslig/shared'
 import { api } from '../api.ts'
+import { useCoarsePointer, useIsNarrow } from '../device.ts'
 import { activeScenario, useStore } from '../store.ts'
 import { isSelected, NO_SELECTION, singleSelected } from '../selection.ts'
 import { boxFrom, itemsInBox } from './marquee.ts'
+import { CalibrateDialog } from './CalibrateDialog.tsx'
+import { DrawBar } from './DrawBar.tsx'
 import { Furniture2D } from './Furniture2D.tsx'
 import { Installations2D } from './Installations2D.tsx'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
@@ -31,13 +34,15 @@ import { OpeningShape } from './OpeningShape.tsx'
 import { distanceText, measureDetails } from './measure.ts'
 import { Background, Grid, Label, PlateText } from './planShapes.tsx'
 import { useHitSizes } from './hit.ts'
+import { isAdditive } from './modifiers.ts'
 import { zoomAt } from './pinch.ts'
 import { usePlanImagePrefs } from './planImagePrefs.ts'
-import { HINTS, SNAP_COLORS, wallFill, wallQuad } from './planStyle.ts'
+import { HINTS, SNAP_COLORS, TOUCH_HINTS, wallFill, wallQuad } from './planStyle.ts'
 import { RoomCorners } from './RoomCorners.tsx'
 import { RoomEdgeLengths, RoomLabel, RoomShape } from './RoomShape.tsx'
 import { SuggestionOverlay } from './SuggestionOverlay.tsx'
 import { useDrawingTool } from './useDrawingTool.ts'
+import { useSheetCover } from './useSheetCover.ts'
 import { useTouchGestures } from './useTouchGestures.ts'
 import { WallDiff } from './WallDiff.tsx'
 import { WallBody, WallHandles } from './WallHandles.tsx'
@@ -129,6 +134,12 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   )
   const lastButtonRef = useRef(0)
   const hit = useHitSizes()
+  const coarse = useCoarsePointer()
+  // The DrawBar stays above the phone's bottom sheet; with the sheet (nearly) all the way up there
+  // is no plan left to draw on, and the bar steps aside
+  const narrow = useIsNarrow()
+  const sheetCover = useSheetCover(containerRef, narrow)
+  const roomForBar = size.height - sheetCover > 140
 
   const fitView = useMemo(() => {
     if (size.width < 50) return null
@@ -149,8 +160,13 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
     calPts,
     measurement,
     typedLength,
+    setTypedLength,
+    commitTypedLength,
     wallEnd,
     shiftRef,
+    calibrating,
+    finishCalibration,
+    clearMeasurement,
     onPointerDown,
     onPointerMove,
     onPointerUp,
@@ -205,10 +221,11 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   const crosshair = tool !== 'select'
 
   /**
-   * The selection rectangle: Shift + drag from empty space (the background or a room) with Velg. A
-   * plain drag still pans. It catches what lies wholly inside (itemsInBox) and adds it to the
-   * selection. Followed on the window, so it ends even when released off the plan. Pointer events,
-   * like everything else on the plan, so a finger can draw one too.
+   * The selection rectangle: Shift + drag from empty space (the background or a room) with Velg, or
+   * with «Velg flere» on, one finger dragged there. A plain drag still pans. It catches what lies
+   * wholly inside (itemsInBox) and adds it to the selection. Followed on the window, so it ends even
+   * when released off the plan, and in the capture phase, ahead of useTouchGestures, which keeps a
+   * pinch's events from everything else: a second finger calls the rectangle off.
    */
   const [marquee, setMarquee] = useState<{ a: Vec2; b: Vec2 } | null>(null)
   const marqueeRef = useRef(false)
@@ -219,7 +236,20 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
     marqueeRef.current = true
     const { pointerId } = e.evt
     const startScreen = { x: e.evt.clientX, y: e.evt.clientY }
+    // A fingertip wobbles more than a mouse before it counts as a drag (see useTouchGestures)
+    const slop = e.evt.pointerType === 'touch' ? 10 : 4
     let b = a
+    const stop = () => {
+      window.removeEventListener('pointerdown', other, true)
+      window.removeEventListener('pointermove', move, true)
+      window.removeEventListener('pointerup', up, true)
+      window.removeEventListener('pointercancel', up, true)
+      marqueeRef.current = false
+      setMarquee(null)
+    }
+    const other = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) stop()
+    }
     const move = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
       stage.setPointersPositions(ev)
@@ -228,20 +258,18 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
     }
     const up = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      window.removeEventListener('pointercancel', up)
-      marqueeRef.current = false
-      setMarquee(null)
+      stop()
       // A Shift+click without a drag is just a click (toggles a room, or does nothing on the background)
-      if (Math.hypot(ev.clientX - startScreen.x, ev.clientY - startScreen.y) < 4) return
+      if (ev.type === 'pointercancel' || Math.hypot(ev.clientX - startScreen.x, ev.clientY - startScreen.y) < slop)
+        return
       const { project: p, showInstallations: installations } = useStore.getState()
       if (!p) return
       useStore.getState().setSelection(itemsInBox(activeScenario(p), boxFrom(a, b), { installations }), true)
     }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-    window.addEventListener('pointercancel', up)
+    window.addEventListener('pointerdown', other, true)
+    window.addEventListener('pointermove', move, true)
+    window.addEventListener('pointerup', up, true)
+    window.addEventListener('pointercancel', up, true)
   }
 
   return (
@@ -278,7 +306,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
           onPointerDown={(e) => {
             lastButtonRef.current = e.evt.button
             const empty = e.target === stageRef.current || ['bg', 'room'].includes(e.target.name())
-            if (interactive && e.evt.button === 0 && e.evt.shiftKey && empty) startMarquee(e)
+            if (interactive && e.evt.button === 0 && isAdditive(e.evt) && empty) startMarquee(e)
             onPointerDown(e)
           }}
           onDragStart={(e) => {
@@ -329,7 +357,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                 onPointerClick={(e) => {
                   if (!interactive) return
                   e.cancelBubble = true
-                  pick({ kind: 'wall', id: w.id }, e.evt.shiftKey)
+                  pick({ kind: 'wall', id: w.id }, isAdditive(e.evt))
                 }}
               />
             ))}
@@ -556,8 +584,25 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
             )}
           </span>
         )}
-        {!readOnly && <span className="hint">{HINTS[tool]}</span>}
+        {!readOnly && <span className="hint">{(coarse ? TOUCH_HINTS : HINTS)[tool]}</span>}
       </div>
+      {!readOnly && roomForBar && (
+        <DrawBar
+          tool={tool}
+          coarse={coarse}
+          drawing={anchor !== null || roomPts.length > 0 || calPts.length > 0}
+          wallStarted={anchor !== null}
+          length={typedLength}
+          onLength={setTypedLength}
+          onSetLength={commitTypedLength}
+          measuring={measurement !== null}
+          onClearMeasurement={clearMeasurement}
+          onFinish={endChain}
+          onCancel={() => useStore.getState().escape()}
+          bottom={sheetCover}
+        />
+      )}
+      {calibrating && <CalibrateDialog onDone={finishCalibration} />}
     </div>
   )
 }

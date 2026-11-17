@@ -88,11 +88,17 @@ test.describe('editor', () => {
       const room = page.locator('.room-list li')
       await expect(room).toHaveCount(1)
 
-      // The top wall is 6 m in reality. The answer is typed the Norwegian way, with a comma.
+      // The top wall is 6 m in reality. The second point asks for that in a dialog of the app's own,
+      // and the answer is typed the Norwegian way, with a comma.
       await tool(page, 'Kalibrer').click()
-      page.once('dialog', (d) => void d.accept('6,0'))
       await click(-150, -100)
       await click(150, -100)
+      const calibration = page.getByRole('dialog', { name: 'Kalibrer' })
+      const meters = calibration.getByRole('textbox', { name: /Hvor langt/ })
+      await expect(meters).toBeFocused()
+      await meters.fill('6,0')
+      await calibration.getByRole('button', { name: 'Bruk målet' }).click()
+      await expect(calibration).toHaveCount(0)
       // 6 × 4 m between the centre lines of the walls, a little less inside them
       await expect(room).toContainText(/2[23],\d m²/)
       await saved(page)

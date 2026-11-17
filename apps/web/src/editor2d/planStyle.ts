@@ -82,3 +82,22 @@ export const HINTS: Record<string, string> = {
   run: 'Klikk punktene langs føringen. Dobbeltklikk eller høyreklikk avslutter. Shift = fri vinkel.',
   ceiling: 'Klikk hjørnene i det nedforede området. Klikk på første punkt for å lukke.',
 }
+
+/**
+ * The hints for a finger (a coarse pointer): no Shift, Alt, scroll or right-click, but the DrawBar's
+ * buttons and toggles that stand in for them. A point goes where the finger is lifted.
+ */
+export const TOUCH_HINTS: Record<string, string> = {
+  select:
+    'Trykk for å velge. Slå på «Velg flere» for å legge til flere, eller dra en ramme rundt dem. Dra for å panorere, knip for å zoome.',
+  wall: 'Trykk for å starte/fortsette vegg; punktet settes der fingeren slippes. Skriv lengden i feltet nederst. «Ferdig» avslutter.',
+  door: 'Trykk på en vegg for å sette inn en dør.',
+  window: 'Trykk på en vegg for å sette inn et vindu.',
+  opening: 'Trykk på en vegg for å sette inn en åpning.',
+  room: 'Trykk hjørnene i rommet. Trykk på første punkt eller «Ferdig» for å lukke.',
+  calibrate: 'Trykk to punkter med kjent avstand (f.eks. en målsatt vegg).',
+  measure: 'Trykk to punkter for å måle avstanden. Neste trykk starter en ny måling.',
+  fixture: 'Trykk for å plassere. Nær en vegg festes punktet på veggflaten på den siden du trykker.',
+  run: 'Trykk punktene langs føringen. «Ferdig» avslutter.',
+  ceiling: 'Trykk hjørnene i det nedforede området. Trykk på første punkt eller «Ferdig» for å lukke.',
+}

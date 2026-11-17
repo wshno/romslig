@@ -378,6 +378,71 @@ select {
 .plan2d-overlay .measure-readout .muted {
   font-weight: 400;
 }
+
+/* DrawBar: buttons and toggles at the bottom of the plan for what the keyboard does while drawing
+   (DrawBar.tsx). Its `bottom` is set inline, so on a phone it sits just above the bottom sheet,
+   which lies over the view; the sheet stays above it (z-index 10) if they ever meet. One row that
+   scrolls sideways rather than wrapping up over the drawing. */
+.drawbar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  pointer-events: none;
+}
+/* Centred while it fits, and scrolled from its first button when it does not (justify-content:
+   center would push the first ones out of reach) */
+.drawbar > :first-child {
+  margin-left: auto;
+}
+.drawbar > :last-child {
+  margin-right: auto;
+}
+.drawbar > *,
+.drawbar-length {
+  flex: none;
+  pointer-events: auto;
+}
+.drawbar button {
+  background: #fffe;
+  white-space: nowrap;
+}
+.drawbar button.primary {
+  background: var(--accent);
+}
+.drawbar button.active {
+  background: var(--accent-soft);
+}
+.drawbar-length {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  background: #fffe;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 2px 2px 8px;
+}
+.drawbar-length label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.drawbar-length input {
+  width: 5em;
+}
+.calibrate-dialog {
+  width: min(360px, calc(100vw - 32px));
+}
+.calibrate-field {
+  display: grid;
+  gap: 6px;
+}
 .walk-hint {
   position: absolute;
   bottom: 12px;

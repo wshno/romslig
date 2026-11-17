@@ -17,6 +17,7 @@ import {
 } from '@romslig/shared'
 import { activeScenario, beginGesture, endGesture, useStore } from '../store.ts'
 import { fmtM } from '../theme.ts'
+import { isAdditive, isNoGrid } from './modifiers.ts'
 import { OPENING_COLORS, SNAP_GRID } from './planStyle.ts'
 
 /** How close (screen px) the pointer has to come to another wall for a dragged opening to go over to it. */
@@ -48,7 +49,7 @@ export function OpeningShape(props: {
     const { base, grab } = dragRef.current
     const next = moveOpening(base, o.id, p, {
       grab,
-      snapStep: e.evt.altKey ? undefined : SNAP_GRID,
+      snapStep: isNoGrid(e.evt) ? undefined : SNAP_GRID,
       switchDist: SWITCH_WALL_PX / scale,
     })
     const m = next.openings.find((x) => x.id === o.id)!
@@ -76,7 +77,7 @@ export function OpeningShape(props: {
       onPointerClick={(e) => {
         if (!props.interactive) return
         e.cancelBubble = true
-        props.onSelect(e.evt.shiftKey)
+        props.onSelect(isAdditive(e.evt))
       }}
       onDragStart={(e) => {
         const project = useStore.getState().project
