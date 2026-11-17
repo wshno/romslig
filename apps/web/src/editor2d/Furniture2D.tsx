@@ -12,6 +12,7 @@ import {
 } from '@romslig/shared'
 import { activeScenario, beginGesture, endGesture, useStore } from '../store.ts'
 import { isSelected, selectedIds } from '../selection.ts'
+import { handleHitStroke, useHitSizes } from './hit.ts'
 
 const ROTATE_HANDLE_GAP = 0.35
 
@@ -36,6 +37,7 @@ interface Props {
  */
 export function Furniture2D({ item, issues, selected, alone, interactive, scale, shiftRef }: Props) {
   const { pick, moveFurniture, updateFurniture } = useStore.getState()
+  const hit = useHitSizes()
   // The furniture as it stood when a group drag started, and where this item was then
   const groupRef = useRef<{ base: FurnitureItem[]; from: { x: number; y: number } } | null>(null)
   const cat = getCatalogItem(item.catalogId)
@@ -76,14 +78,14 @@ export function Furniture2D({ item, issues, selected, alone, interactive, scale,
         y={item.y}
         rotation={item.rotation}
         draggable={interactive}
-        onMouseDown={(e) => {
+        onPointerDown={(e) => {
           if (!interactive) return
           e.cancelBubble = true
           const shift = e.evt.shiftKey
           if (shift || !isSelected(useStore.getState().selection, item.id))
             pick({ kind: 'furniture', id: item.id }, shift)
         }}
-        onClick={(e) => {
+        onPointerClick={(e) => {
           if (!interactive) return
           e.cancelBubble = true
           // A click (no drag) on one of several selected items selects it alone
@@ -171,13 +173,14 @@ export function Furniture2D({ item, issues, selected, alone, interactive, scale,
         <Circle
           x={handleAt.x}
           y={handleAt.y}
-          radius={6 / scale}
+          radius={hit.handle / scale}
           fill="#fff"
           stroke="#2563eb"
           strokeWidth={2}
+          hitStrokeWidth={handleHitStroke(hit.handle, hit.handleHit)}
           strokeScaleEnabled={false}
           draggable
-          onMouseDown={(e) => (e.cancelBubble = true)}
+          onPointerDown={(e) => (e.cancelBubble = true)}
           onDragStart={(e) => {
             e.cancelBubble = true
             beginGesture()

@@ -30,15 +30,20 @@ import { fmtM } from '../theme.ts'
 import { OpeningShape } from './OpeningShape.tsx'
 import { distanceText, measureDetails } from './measure.ts'
 import { Background, Grid, Label, PlateText } from './planShapes.tsx'
+import { useHitSizes } from './hit.ts'
+import { zoomAt } from './pinch.ts'
 import { usePlanImagePrefs } from './planImagePrefs.ts'
 import { HINTS, SNAP_COLORS, wallFill, wallQuad } from './planStyle.ts'
 import { RoomCorners } from './RoomCorners.tsx'
 import { RoomEdgeLengths, RoomLabel, RoomShape } from './RoomShape.tsx'
 import { SuggestionOverlay } from './SuggestionOverlay.tsx'
 import { useDrawingTool } from './useDrawingTool.ts'
+import { useTouchGestures } from './useTouchGestures.ts'
 import { WallDiff } from './WallDiff.tsx'
 import { WallBody, WallHandles } from './WallHandles.tsx'
 
+// Left button drags (and pans on empty space), the middle button pans in every tool. Touch drags
+// are not affected: they have no button.
 Konva.dragButtons = [0, 1]
 
 const MEASURE_COLOR = '#c026d3'
@@ -123,6 +128,7 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
     [scenario.furniture],
   )
   const lastButtonRef = useRef(0)
+  const hit = useHitSizes()
 
   const fitView = useMemo(() => {
     if (size.width < 50) return null
@@ -145,8 +151,10 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
     typedLength,
     wallEnd,
     shiftRef,
-    onMouseMove,
-    onClick,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerClick,
     endChain,
   } = useDrawingTool({
     stageRef,
@@ -165,12 +173,10 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
     e.evt.preventDefault()
     const stage = stageRef.current
     if (!stage || !view) return
-    const pointer = stage.getPointerPosition()!
-    const world = { x: (pointer.x - view.x) / view.scale, y: (pointer.y - view.y) / view.scale }
     const factor = e.evt.deltaY > 0 ? 1 / 1.12 : 1.12
-    const ns = Math.min(800, Math.max(5, view.scale * factor))
-    setManualView({ scale: ns, x: pointer.x - world.x * ns, y: pointer.y - world.y * ns })
+    setManualView(zoomAt(view, stage.getPointerPosition()!, view.scale * factor))
   }
+  const { multiTouchRef, lastPointerTypeRef } = useTouchGestures(containerRef, stageRef, setManualView)
 
   const selectedWall = single?.kind === 'wall' ? walls.find((w) => w.id === single.id) : undefined
   /**
@@ -201,25 +207,30 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
   /**
    * The selection rectangle: Shift + drag from empty space (the background or a room) with Velg. A
    * plain drag still pans. It catches what lies wholly inside (itemsInBox) and adds it to the
-   * selection. Followed on the window, so it ends even when released off the plan.
+   * selection. Followed on the window, so it ends even when released off the plan. Pointer events,
+   * like everything else on the plan, so a finger can draw one too.
    */
   const [marquee, setMarquee] = useState<{ a: Vec2; b: Vec2 } | null>(null)
   const marqueeRef = useRef(false)
-  const startMarquee = (e: KonvaEventObject<MouseEvent>) => {
+  const startMarquee = (e: KonvaEventObject<PointerEvent>) => {
     const stage = stageRef.current
     const a = stage?.getRelativePointerPosition()
     if (!stage || !a) return
     marqueeRef.current = true
+    const { pointerId } = e.evt
     const startScreen = { x: e.evt.clientX, y: e.evt.clientY }
     let b = a
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
       stage.setPointersPositions(ev)
       b = stage.getRelativePointerPosition() ?? b
       setMarquee({ a, b })
     }
-    const up = (ev: MouseEvent) => {
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', up)
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
       marqueeRef.current = false
       setMarquee(null)
       // A Shift+click without a drag is just a click (toggles a room, or does nothing on the background)
@@ -228,8 +239,9 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
       if (!p) return
       useStore.getState().setSelection(itemsInBox(activeScenario(p), boxFrom(a, b), { installations }), true)
     }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
   }
 
   return (
@@ -261,12 +273,20 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
           scaleX={view.scale}
           scaleY={view.scale}
           draggable
-          onMouseDown={(e) => {
+          // Pointer events throughout: Konva fires mousedown/click only for a mouse, and
+          // touchstart/tap only for a finger, but pointerdown/pointerclick for both
+          onPointerDown={(e) => {
             lastButtonRef.current = e.evt.button
             const empty = e.target === stageRef.current || ['bg', 'room'].includes(e.target.name())
             if (interactive && e.evt.button === 0 && e.evt.shiftKey && empty) startMarquee(e)
+            onPointerDown(e)
           }}
           onDragStart={(e) => {
+            // A second finger turned the gesture into a pinch (see useTouchGestures)
+            if (multiTouchRef.current) {
+              e.target.stopDrag()
+              return
+            }
             if (e.target !== stageRef.current || lastButtonRef.current !== 0) return
             if (tool !== 'select' || marqueeRef.current) e.target.stopDrag()
           }}
@@ -274,11 +294,15 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
             if (e.target === stageRef.current) setManualView({ scale: view.scale, x: e.target.x(), y: e.target.y() })
           }}
           onWheel={onWheel}
-          onMouseMove={onMouseMove}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
           onMouseLeave={() => setCursor(null)}
-          onClick={onClick}
+          onPointerClick={onPointerClick}
           onContextMenu={(e) => {
             e.evt.preventDefault()
+            // A long press opens the context menu on Android: a finger held still to aim must not
+            // end the wall. Right-click is a mouse thing.
+            if (lastPointerTypeRef.current === 'touch') return
             endChain()
           }}
         >
@@ -300,9 +324,9 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                 closed
                 fill={wallFill(w, isSelected(selection, w.id))}
                 opacity={0.9}
-                hitStrokeWidth={8}
+                hitStrokeWidth={hit.wall}
                 strokeScaleEnabled={false}
-                onClick={(e) => {
+                onPointerClick={(e) => {
                   if (!interactive) return
                   e.cancelBubble = true
                   pick({ kind: 'wall', id: w.id }, e.evt.shiftKey)

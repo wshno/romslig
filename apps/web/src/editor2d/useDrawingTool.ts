@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import type Konva from 'konva'
+import Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { add, dist, mul, nearestWall, norm, snapPoint, sub, type SnapKind, type Vec2, type Wall } from '@romslig/shared'
 import { useStore, type Tool } from '../store.ts'
+import { useHitSizes } from './hit.ts'
 import { fixturePlacement } from './installationUtils.ts'
 import type { Measurement } from './measure.ts'
 import type { PlanView } from './Plan2D.tsx'
@@ -38,13 +39,22 @@ export interface DrawingTool {
   wallEnd: Vec2 | null
   /** True while Shift is held (free angle / no snapping). */
   shiftRef: RefObject<boolean>
-  onMouseMove(e?: KonvaEventObject<MouseEvent>): void
-  onClick(e: KonvaEventObject<MouseEvent>): void
+  onPointerDown(e: KonvaEventObject<PointerEvent>): void
+  onPointerMove(e?: KonvaEventObject<PointerEvent>): void
+  onPointerUp(e: KonvaEventObject<PointerEvent>): void
+  onPointerClick(e: KonvaEventObject<PointerEvent>): void
   /** Finishes the current wall chain, room, ceiling or run. */
   endChain(): void
 }
 
-/** State and pointer handlers for the drawing tools (walls, rooms, openings, fixtures, runs, calibration). */
+/**
+ * State and pointer handlers for the drawing tools (walls, rooms, openings, fixtures, runs, calibration).
+ *
+ * A mouse or pen places a point with a click; the aim follows it as it hovers. A finger cannot
+ * hover, so the aim follows it while it is held down and the point goes where it is lifted: the
+ * snap and the length show before it is placed. Konva fires no click after a finger has moved
+ * (the stage's drag start cancels it, see Plan2D), hence onPointerUp for touch.
+ */
 export function useDrawingTool({
   stageRef,
   tool,
@@ -64,7 +74,7 @@ export function useDrawingTool({
   const shiftRef = useRef(false)
   /** True while Alt is held (no grid snapping). */
   const altRef = useRef(false)
-  /** Our own double-click detection: same spot (screen px) within 350 ms. */
+  /** Our own double-click detection: same spot (screen px, see sameSpotPx) within 350 ms. */
   const lastClickRef = useRef({ t: 0, x: 0, y: 0, double: false })
 
   // Reset in-progress drawing when the tool changes (adjusting state during render, not in an effect)
@@ -110,8 +120,9 @@ export function useDrawingTool({
     }
   }, [])
 
+  const hit = useHitSizes()
   const px = (n: number) => n / scale // screen pixels → meters
-  const tol = px(12)
+  const tol = px(hit.snap)
 
   const worldPointer = (): Vec2 | null => stageRef.current?.getRelativePointerPosition() ?? null
 
@@ -176,22 +187,44 @@ export function useDrawingTool({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [tool, anchor, readOnly, typedLength, typedMeters, wallEnd, addWall])
 
-  const onMouseMove = (e?: KonvaEventObject<MouseEvent>) => {
+  const onPointerMove = (e?: KonvaEventObject<PointerEvent>) => {
     // The pointer event knows Alt too, and is right even when its keyup was missed (Alt+Tab)
     if (e) altRef.current = e.evt.altKey
     const p = worldPointer()
     if (p) setCursor(resolve(p))
   }
 
-  const onClick = (e: KonvaEventObject<MouseEvent>) => {
+  const fingerDrawing = (e: KonvaEventObject<PointerEvent>) => e.evt.pointerType === 'touch' && tool !== 'select'
+
+  // A finger shows the aim from the moment it touches
+  const onPointerDown = (e: KonvaEventObject<PointerEvent>) => {
+    if (fingerDrawing(e)) onPointerMove(e)
+  }
+
+  const onPointerUp = (e: KonvaEventObject<PointerEvent>) => {
+    if (!fingerDrawing(e)) return
+    // Lifted at the end of a drag of a handle (a selected wall's ends): that was no point
+    if (Konva.DD.isDragging) return
+    onPointerMove(e)
+    place(e)
+  }
+
+  const onPointerClick = (e: KonvaEventObject<PointerEvent>) => {
+    if (fingerDrawing(e)) return // placed in onPointerUp
+    place(e)
+  }
+
+  const place = (e: KonvaEventObject<PointerEvent>) => {
     if (e.evt.button !== 0 || readOnly) return
     altRef.current = e.evt.altKey
     const raw = worldPointer()
     if (!raw) return
     const now = performance.now()
+    // Two taps of a finger land further apart than two clicks of a mouse
+    const sameSpotPx = e.evt.pointerType === 'touch' ? 20 : 6
     const sameSpot =
       now - lastClickRef.current.t < 350 &&
-      Math.hypot(e.evt.clientX - lastClickRef.current.x, e.evt.clientY - lastClickRef.current.y) < 6
+      Math.hypot(e.evt.clientX - lastClickRef.current.x, e.evt.clientY - lastClickRef.current.y) < sameSpotPx
     const wasDouble = lastClickRef.current.double
     lastClickRef.current = { t: now, x: e.evt.clientX, y: e.evt.clientY, double: sameSpot && !wasDouble }
     if (sameSpot && (tool === 'wall' || tool === 'room' || tool === 'run' || tool === 'ceiling')) {
@@ -279,8 +312,10 @@ export function useDrawingTool({
     typedLength,
     wallEnd,
     shiftRef,
-    onMouseMove,
-    onClick,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerClick,
     endChain,
   }
 }
