@@ -1468,10 +1468,11 @@ select {
 }
 
 /* Touch in the 3D view. The browser must not take a finger on the view for scrolling or zooming the
-   page, in either camera mode: OrbitControls sets this on the canvas's wrapper while it runs and
-   resets it when "Gå rundt" replaces it, so it is set here on the canvas itself. */
+   page, in either camera mode. OrbitControls writes touch-action into the inline style of the
+   element it listens on while it runs, and "auto" when "Gå rundt" replaces it. An inline style
+   beats a plain rule, hence !important, on the canvas itself. */
 .viewer3d canvas {
-  touch-action: none;
+  touch-action: none !important;
 }
 /* The stick for walking with a thumb (TouchWalk.tsx), bottom left over the view */
 .walk-stick {
