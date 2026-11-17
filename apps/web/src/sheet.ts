@@ -1,3 +1,4 @@
+import type { PhotoFlowEvent } from './photoFlow.ts'
 import type { SelectedItem, Tool } from './store.ts'
 
 /**
@@ -37,6 +38,22 @@ export function snapAfter(current: SheetSnap, prev: SheetWatch, next: SheetWatch
     next.furnitureIds.includes(only!.id)
   if (added) return 'closed'
   return current === 'closed' ? 'half' : current
+}
+
+/**
+ * Where the sheet goes for the photo flow (photoFlow.ts). `before` is where it was when the flow
+ * opened.
+ *
+ * - it opens: full height, so the photos, the direction pickers and the buttons get the screen;
+ * - the user closes it (Lukk, Avbryt): back to where it was before, as if it had not been opened;
+ * - the furniture is added: down, so the plan shows the new pieces, selected and ready to move;
+ * - it leaves the screen some other way (a tab or a selection replaced it): it stays.
+ */
+export function snapForPhotoFlow(event: PhotoFlowEvent, current: SheetSnap, before: SheetSnap): SheetSnap {
+  if (event === 'open') return 'full'
+  if (event === 'cancel') return before
+  if (event === 'placed') return 'closed'
+  return current
 }
 
 /** A tap on the handle: up a step, and from the top back down. */

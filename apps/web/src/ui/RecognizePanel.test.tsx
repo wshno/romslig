@@ -137,7 +137,7 @@ describe('RecognizePanel', () => {
     expect(screen.getByTestId('photo-files')).not.toHaveAttribute('capture')
 
     fireEvent.click(screen.getByRole('button', { name: 'Lukk' }))
-    expect(onClose).toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalledWith('cancel')
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull()
   })
 
@@ -342,6 +342,9 @@ describe('RecognizePanel', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '✨ Gjenkjenn møbler' })).toBeEnabled())
     expect(screen.queryByText('Claude er overbelastet.')).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    // The photos wait for the key: once it is in, the same button tries again
+    expect(photos()).toHaveLength(1)
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('places the chosen items in the room, leaving unsure ones out unless picked', async () => {
@@ -375,7 +378,7 @@ describe('RecognizePanel', () => {
     fireEvent.click(chair!)
     fireEvent.click(screen.getByRole('button', { name: 'Legg inn 2 møbler' }))
 
-    expect(onClose).toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalledWith('placed')
     const furniture = scenario().furniture
     expect(furniture.map((f) => f.label).sort()).toEqual(['Grå sofa', 'Lenestol'])
     expect(furniture.every((f) => f.roomId === room.id)).toBe(true)

@@ -73,7 +73,8 @@ async function keepScreenOn(): Promise<WakeLockSentinel | null> {
   }
 }
 
-export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void }) {
+/** `onClose` says how the panel ended: closed by the user, or with the furniture placed. */
+export function RecognizePanel({ room, onClose }: { room: Room; onClose(how: 'cancel' | 'placed'): void }) {
   const project = useStore((s) => s.project)!
   /** Downscaled photos with the plan wall each faces, restored if the tab was reloaded. */
   const [photos, setPhotos] = useState<PreparedPhoto[]>(() => {
@@ -131,9 +132,9 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
     }
   }
 
-  const close = () => {
+  const close = (how: 'cancel' | 'placed') => {
     clearSession()
-    onClose()
+    onClose(how)
   }
 
   const run = async () => {
@@ -171,20 +172,21 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
     if (custom.length) store.addCustomFurniture(custom)
     const placed = placeRecognized(selected, room)
     store.addFurnitureItems(placed)
-    close()
     // Show the new furniture in the plan, selected, so it can be moved into place straight away
     if (store.view === '3d' || store.view === 'compare') store.setView('2d')
     placed.forEach((f, i) => {
       if (i === 0) store.select({ kind: 'furniture', id: f.id })
       else store.pick({ kind: 'furniture', id: f.id }, true)
     })
+    // Last, so whatever follows the selection (the phone's sheet) hears that the panel is done after it
+    close('placed')
   }
 
   return (
     <section className="recognize">
       <div className="row spread">
         <h4>Gjenkjenn møbler fra bilder</h4>
-        <button className="link" onClick={close}>
+        <button className="link" onClick={() => close('cancel')}>
           Lukk
         </button>
       </div>
