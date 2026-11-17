@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls } from '@react-three/drei'
@@ -18,6 +18,7 @@ import { useScenario, useStore } from '../store.ts'
 import { isSelected } from '../selection.ts'
 import { useFurnitureIssues } from '../hooks.ts'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
+import { useCoarsePointer } from '../device.ts'
 import { distanceToFit } from './fitCamera.ts'
 import { floorSurface } from './floorMaterials.ts'
 import { Furniture3D } from './Furniture3D.tsx'
@@ -27,12 +28,12 @@ import { Opening3D } from './Openings3D.tsx'
 /** Converts a screen position to a point on the floor; set by <FloorPicker> inside the canvas. */
 type FloorPick = (clientX: number, clientY: number) => { x: number; y: number } | null
 import { ROOM_COLORS } from '../theme.ts'
-import { useWalkStep } from './useWalkStep.ts'
+import { useWalk } from './useWalkStep.ts'
+import { TouchWalk } from './TouchWalk.tsx'
+import { WalkStick } from './WalkStick.tsx'
+import { STANDING, clickSlop, keyInput, type WalkInput } from './walkMotion.ts'
 
 type CameraMode = 'orbit' | 'walk'
-
-/** The pointer may move this far between press and release and still count as a click (px). */
-const DRAG_SLOP = 4
 
 export function Viewer3D() {
   const scenario = useScenario()
@@ -46,8 +47,13 @@ export function Viewer3D() {
   const showInstallations = useStore((s) => s.showInstallations)
   const ceilingHeight = useStore((s) => s.project?.ceilingHeight ?? 2.4)
   const pickRef = useRef<FloorPick | null>(null)
-  /** Where the mouse button went down, to tell a click from the end of a drag. */
-  const pressRef = useRef({ x: 0, y: 0 })
+  /** Where the pointer went down, and with what, to tell a click from the end of a drag. */
+  const pressRef = useRef({ x: 0, y: 0, pointerType: 'mouse' })
+  /** A finger instead of a mouse: the walk is steered on screen, and the GPU is spared. */
+  const coarse = useCoarsePointer()
+  /** What the on-screen stick asks for; read by <TouchWalk> every frame. */
+  const stickRef = useRef<WalkInput>(STANDING)
+  const viewerRef = useRef<HTMLDivElement>(null)
 
   const bounds = useMemo(() => {
     const pts = scenario?.walls.flatMap((w) => [w.a, w.b]) ?? []
@@ -60,17 +66,26 @@ export function Viewer3D() {
   const footprints = useMemo(() => wallFootprints(scenario?.walls ?? []), [scenario?.walls])
 
   if (!scenario) return null
+  // On a touch screen the walk is steered on screen; with a mouse, pointer lock and the keys
+  const start = { x: bounds.cx, y: bounds.cy }
+  const walk = coarse ? (
+    <TouchWalk start={start} stickRef={stickRef} />
+  ) : (
+    <Walk start={start} onExit={() => setMode('orbit')} />
+  )
   return (
     <div
       className="viewer3d"
+      ref={viewerRef}
       onPointerDownCapture={(e) => {
-        pressRef.current = { x: e.clientX, y: e.clientY }
+        pressRef.current = { x: e.clientX, y: e.clientY, pointerType: e.pointerType }
       }}
       onClickCapture={(e) => {
         // Turning the view or moving a piece of furniture also ends in a click. It is not a selection:
         // keep it from the 3D scene, where it would select whatever is under the pointer.
         const moved = Math.hypot(e.clientX - pressRef.current.x, e.clientY - pressRef.current.y)
-        if (moved > DRAG_SLOP && e.target instanceof HTMLCanvasElement) e.stopPropagation()
+        const slop = clickSlop(pressRef.current.pointerType)
+        if (moved > slop && e.target instanceof HTMLCanvasElement) e.stopPropagation()
       }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes(FURNITURE_DND_TYPE)) e.preventDefault()
@@ -86,6 +101,8 @@ export function Viewer3D() {
     >
       <Canvas
         shadows
+        // R3F's default today, said out loud: a phone with a 3x screen draws at 2x, which is plenty
+        dpr={[1, 2]}
         // A click that hits nothing selectable (the ground, the sky) lets go of the selection, as in 2D
         // (with Shift, which adds to the selection, it is kept)
         onPointerMissed={(e) => {
@@ -101,10 +118,13 @@ export function Viewer3D() {
         <color attach="background" args={['#e8edf3']} />
         <hemisphereLight args={['#ffffff', '#cfc6b8', 1.5]} />
         <directionalLight
+          // A new light when the size changes: three.js does not rebuild a shadow map it has made
+          key={coarse ? 'coarse' : 'fine'}
           position={[bounds.cx + 8, 14, bounds.cy + 5]}
           intensity={1.6}
           castShadow
-          shadow-mapSize={[2048, 2048]}
+          // A phone or tablet GPU pays for every shadow texel; at 1024 the shadows are only a bit softer
+          shadow-mapSize={coarse ? [1024, 1024] : [2048, 2048]}
           shadow-camera-left={-bounds.size}
           shadow-camera-right={bounds.size}
           shadow-camera-top={bounds.size}
@@ -147,8 +167,9 @@ export function Viewer3D() {
             <FitCamera bounds={bounds} />
           </>
         ) : (
-          <Walk start={[bounds.cx, bounds.cy]} onExit={() => setMode('orbit')} />
+          walk
         )}
+        <CameraProbe viewerRef={viewerRef} />
       </Canvas>
       <div className="viewer3d-overlay">
         <button className={mode === 'orbit' ? 'active' : ''} onClick={() => setMode('orbit')}>
@@ -157,7 +178,11 @@ export function Viewer3D() {
         <button
           className={mode === 'walk' ? 'active' : ''}
           onClick={() => setMode('walk')}
-          title="WASD for å gå, mus for å se. Esc avslutter."
+          title={
+            coarse
+              ? 'Spaken nede til venstre for å gå, dra i bildet for å se deg rundt'
+              : 'WASD for å gå, mus for å se. Esc avslutter.'
+          }
         >
           Gå rundt
         </button>
@@ -190,9 +215,13 @@ export function Viewer3D() {
           Installasjoner
         </button>
       </div>
-      {mode === 'walk' && (
-        <div className="walk-hint">Klikk i 3D-vinduet for å styre. WASD = gå, mus = se, Esc = avslutt</div>
-      )}
+      {mode === 'walk' && coarse && <WalkStick stickRef={stickRef} />}
+      {mode === 'walk' &&
+        (coarse ? (
+          <div className="walk-hint touch">Spaken = gå, dra i bildet = se deg rundt. Fugleperspektiv avslutter</div>
+        ) : (
+          <div className="walk-hint">Klikk i 3D-vinduet for å styre. WASD = gå, mus = se, Esc = avslutt</div>
+        ))}
     </div>
   )
 }
@@ -324,12 +353,10 @@ function WallMesh({
   )
 }
 
-function Walk({ start, onExit }: { start: [number, number]; onExit(): void }) {
-  const { camera } = useThree()
+function Walk({ start, onExit }: { start: Vec2; onExit(): void }) {
   const keysRef = useRef<Record<string, boolean>>({})
-  const step = useWalkStep()
+  useWalk(start, () => keyInput(keysRef.current))
   useEffect(() => {
-    camera.position.set(start[0], 1.6, start[1])
     const down = (e: KeyboardEvent) => (keysRef.current[e.code] = true)
     const up = (e: KeyboardEvent) => (keysRef.current[e.code] = false)
     window.addEventListener('keydown', down)
@@ -338,26 +365,29 @@ function Walk({ start, onExit }: { start: [number, number]; onExit(): void }) {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
     }
-  }, [camera, start])
-  useFrame((_, dt) => {
-    const k = keysRef.current
-    // A frame that took long (the tab was in the background) is not a long stride
-    const speed = (k.ShiftLeft ? 3 : 1.4) * Math.min(dt, 0.1)
-    const fwd = new THREE.Vector3()
-    camera.getWorldDirection(fwd)
-    fwd.y = 0
-    fwd.normalize()
-    const right = new THREE.Vector3().crossVectors(fwd, camera.up).normalize()
-    const to = camera.position.clone()
-    if (k.KeyW || k.ArrowUp) to.addScaledVector(fwd, speed)
-    if (k.KeyS || k.ArrowDown) to.addScaledVector(fwd, -speed)
-    if (k.KeyD || k.ArrowRight) to.addScaledVector(right, speed)
-    if (k.KeyA || k.ArrowLeft) to.addScaledVector(right, -speed)
-    // Walls stop the walk, doors and doorways let it through
-    const p = step({ x: camera.position.x, y: camera.position.z }, { x: to.x, y: to.z })
-    camera.position.set(p.x, 1.6, p.y)
-  })
+  }, [])
   return <PointerLockControls makeDefault onUnlock={onExit} />
+}
+
+/**
+ * Writes where the camera is onto the viewer as `data-camera="x,y,z"` (m, two decimals), a few times
+ * a second and only when it changed. The canvas cannot be looked into from outside, and this is how
+ * the end-to-end tests see that walking moved the camera. It costs one string per quarter second and
+ * is the same in production, so the tests run the code that ships.
+ */
+function CameraProbe({ viewerRef }: { viewerRef: RefObject<HTMLDivElement | null> }) {
+  const camera = useThree((s) => s.camera)
+  const sinceRef = useRef(Infinity)
+  useFrame((_, dt) => {
+    sinceRef.current += dt
+    const el = viewerRef.current
+    if (sinceRef.current < 0.25 || !el) return
+    sinceRef.current = 0
+    const p = camera.position
+    const v = `${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}`
+    if (el.dataset.camera !== v) el.dataset.camera = v
+  })
+  return null
 }
 
 /** Air around the model when the camera frames it. */

@@ -1414,6 +1414,19 @@ select {
   .sheet.closed:not(.dragging) .sheet-body > .inspector > :not(.tabs) {
     display: none;
   }
+  /* The closed sheet (handle 24px, tabs 44px, their border) does not lie over the plan or the 3D
+     view: they end where it begins. Otherwise what sits at the bottom of a view, such as the stick
+     for walking in 3D, is under the sheet, and a fitted plan is centred partly behind it. Half and
+     full still slide over the view. */
+  .sheet .tabs button {
+    height: 44px;
+    min-height: 44px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  .views:has(> .sheet) > .views-inner {
+    bottom: 69px;
+  }
 
   /* Compare: the two plans one above the other, the differences folded away at the bottom */
   .compare {
@@ -1465,4 +1478,44 @@ select {
   button:not(.link) {
     min-height: 40px;
   }
+}
+
+/* Touch in the 3D view. The browser must not take a finger on the view for scrolling or zooming the
+   page, in either camera mode. OrbitControls writes touch-action into the inline style of the
+   element it listens on while it runs, and "auto" when "Gå rundt" replaces it. An inline style
+   beats a plain rule, hence !important, on the canvas itself. */
+.viewer3d canvas {
+  touch-action: none !important;
+}
+/* The stick for walking with a thumb (TouchWalk.tsx), bottom left over the view */
+.walk-stick {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: #0f172a33;
+  border: 2px solid #ffffffb3;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.walk-stick-knob {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #ffffffe6;
+  box-shadow: 0 1px 4px #0f172a66;
+  pointer-events: none;
+}
+/* On a touch screen the stick has the bottom left corner, so the hint goes up under the buttons */
+.walk-hint.touch {
+  top: 56px;
+  bottom: auto;
+  max-width: calc(100% - 32px);
+  text-align: center;
 }
