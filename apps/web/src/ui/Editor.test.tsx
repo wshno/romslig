@@ -4,7 +4,7 @@ import { emptyScenario, type Project } from '@romslig/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAi } from '../ai/client.ts'
 import { activeScenario, resetHistory, useStore } from '../store.ts'
-import { NARROW_QUERY } from '../device.ts'
+import { COMPACT_QUERY, NARROW_QUERY } from '../device.ts'
 import { stubMatchMedia } from '../test/matchMedia.ts'
 import { Editor } from './Editor.tsx'
 
@@ -366,6 +366,23 @@ describe('Editor', () => {
     expect(screen.queryByRole('button', { name: 'Flere valg' })).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Egenskaper' })).not.toBeInTheDocument()
     expect(screen.getByTitle('Ny variant (kopi av denne)')).toBeInTheDocument()
+  })
+
+  it('gives a tablet the ⋯ menu, but its columns, both views and the save state in words', async () => {
+    stubMatchMedia({ [COMPACT_QUERY]: true, [NARROW_QUERY]: false })
+    await openEditor()
+    expect(screen.getByRole('button', { name: 'Flere valg' })).toBeInTheDocument()
+    expect(screen.queryByTitle('Ny variant (kopi av denne)')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '2D + 3D' })).toHaveClass('active')
+    expect(screen.getByText('3D-visning')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Egenskaper' })).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).not.toHaveClass('dot')
+    expect(screen.getByRole('status')).toHaveTextContent('Lagret')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Flere valg' }))
+    expect(
+      within(screen.getByRole('group', { name: 'Flere valg' })).getByTitle('Ny variant (kopi av denne)'),
+    ).toBeVisible()
   })
 
   describe('on a phone', () => {

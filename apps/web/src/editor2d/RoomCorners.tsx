@@ -29,8 +29,10 @@ const setCursor = (e: KonvaEventObject<MouseEvent>, cursor: string) => {
  * by walls follow their walls and get none, see boundingWalls). Dragging a corner moves it, snapped
  * like the drawing tools (Alt: no grid, Shift: no 45° lines), as one undo step; a move that would
  * make the outline cross itself or collapse an edge is refused and the corner stays at the last
- * place that worked. A double-click on an edge adds a corner there, and Delete or Backspace with
- * the pointer on a corner removes it (at least three stay).
+ * place that worked. A double-click (or double tap) on an edge adds a corner there, and Delete or
+ * Backspace with the pointer on a corner removes it (at least three stay). A finger has no hover:
+ * the corner it last touched is reported with `onPick` and drawn filled, and «Fjern hjørne» in the
+ * DrawBar removes it.
  */
 export function RoomCorners({
   room,
@@ -38,6 +40,8 @@ export function RoomCorners({
   scale,
   shiftRef,
   onDragging,
+  picked = null,
+  onPick,
 }: {
   room: Room
   walls: Wall[]
@@ -45,6 +49,10 @@ export function RoomCorners({
   shiftRef: React.RefObject<boolean>
   /** Called with true when a corner drag starts and false when it ends. */
   onDragging(dragging: boolean): void
+  /** The corner a finger last touched, drawn filled. */
+  picked?: number | null
+  /** Called with a corner's index when a finger or pen (not a mouse) touches it. */
+  onPick?(index: number): void
 }) {
   // The outline as it was when the drag started (every move is worked out from it), and where the
   // dragged corner last stood in a valid outline
@@ -112,7 +120,7 @@ export function RoomCorners({
       x={p.x}
       y={p.y}
       radius={hit.handle / scale}
-      fill="#fff"
+      fill={picked === i ? '#2563eb' : '#fff'}
       stroke="#2563eb"
       strokeWidth={2}
       hitStrokeWidth={handleHitStroke(hit.handle, hit.handleHit)}
@@ -125,6 +133,9 @@ export function RoomCorners({
       onMouseLeave={(e) => {
         if (hoverRef.current === i) hoverRef.current = null
         setCursor(e, '')
+      }}
+      onPointerDown={(e) => {
+        if (e.evt.pointerType !== 'mouse') onPick?.(i)
       }}
       onDragStart={() => {
         beginGesture()

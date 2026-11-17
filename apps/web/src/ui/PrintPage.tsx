@@ -135,7 +135,7 @@ function Sheet(props: { project: Project; scenario: Scenario; dimensions: boolea
   }
 
   return (
-    <section className="sheet">
+    <section className="print-sheet">
       <header>
         <h1>{project.name}</h1>
         <p>

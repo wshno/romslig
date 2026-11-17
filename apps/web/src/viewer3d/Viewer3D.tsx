@@ -19,6 +19,7 @@ import { isSelected } from '../selection.ts'
 import { useFurnitureIssues } from '../hooks.ts'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
 import { useCoarsePointer } from '../device.ts'
+import { isAdditive } from '../editor2d/modifiers.ts'
 import { distanceToFit } from './fitCamera.ts'
 import { floorSurface } from './floorMaterials.ts'
 import { Furniture3D } from './Furniture3D.tsx'
@@ -104,9 +105,9 @@ export function Viewer3D() {
         // R3F's default today, said out loud: a phone with a 3x screen draws at 2x, which is plenty
         dpr={[1, 2]}
         // A click that hits nothing selectable (the ground, the sky) lets go of the selection, as in 2D
-        // (with Shift, which adds to the selection, it is kept)
+        // (with Shift or «Velg flere», which add to the selection, it is kept)
         onPointerMissed={(e) => {
-          if (!e.shiftKey) useStore.getState().select(null)
+          if (!isAdditive(e)) useStore.getState().select(null)
         }}
         camera={{
           fov: 50,

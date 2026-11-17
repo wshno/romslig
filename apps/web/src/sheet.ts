@@ -56,6 +56,18 @@ export function snapForPhotoFlow(event: PhotoFlowEvent, current: SheetSnap, befo
   return current
 }
 
+/**
+ * Where the sheet goes when something in it gets the focus. A text area (the assistant's question)
+ * takes it to full height: the on-screen keyboard then takes the lower half of the screen, and at
+ * half height the sheet would be left with little more than the field itself. The view shrinks to
+ * the space above the keyboard (interactive-widget=resizes-content in index.html), so at full height
+ * the field sits right above the keyboard with the messages above it. Other fields, short ones,
+ * leave the sheet where it is.
+ */
+export function snapOnFocus(current: SheetSnap, target: { tagName: string }): SheetSnap {
+  return target.tagName === 'TEXTAREA' ? 'full' : current
+}
+
 /** A tap on the handle: up a step, and from the top back down. */
 export function snapOnTap(current: SheetSnap): SheetSnap {
   if (current === 'closed') return 'half'

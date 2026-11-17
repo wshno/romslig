@@ -1,6 +1,14 @@
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { activeScenario, useStore } from '../store.ts'
-import { nearestSnap, snapAfter, snapForPhotoFlow, snapOnTap, type SheetSnap, type SheetWatch } from '../sheet.ts'
+import {
+  nearestSnap,
+  snapAfter,
+  snapForPhotoFlow,
+  snapOnFocus,
+  snapOnTap,
+  type SheetSnap,
+  type SheetWatch,
+} from '../sheet.ts'
 import { onPhotoFlow, photoFlowOpen, type PhotoFlowEvent } from '../photoFlow.ts'
 import { readSession } from './recognizeSession.ts'
 
@@ -36,7 +44,8 @@ interface Drag {
  * at the nearest of the three. It follows the editor too: up when something is selected, down when a
  * drawing tool is picked or a piece is added from the catalog (see snapAfter). While the photo
  * flow is on screen it takes the full height and leaves those reactions out, and it goes down when
- * the recognised furniture is added (see snapForPhotoFlow). Its content scrolls inside it.
+ * the recognised furniture is added (see snapForPhotoFlow), and it goes to full height when a text
+ * area in it gets the focus (see snapOnFocus). Its content scrolls inside it.
  */
 export function BottomSheet({ label, children }: { label: string; children: ReactNode }) {
   const [snap, setSnap] = useState<SheetSnap>('closed')
@@ -162,6 +171,7 @@ export function BottomSheet({ label, children }: { label: string; children: Reac
         onClickCapture={() => {
           if (snap === 'closed') setSnap('half')
         }}
+        onFocusCapture={(e) => setSnap((current) => snapOnFocus(current, e.target))}
       >
         {children}
       </div>

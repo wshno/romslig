@@ -105,6 +105,26 @@ describe('DrawBar', () => {
     expect(button('Fri vinkel')).toBeInTheDocument()
   })
 
+  it('removes a touched room corner with «Fjern hjørne», and not while only three are left', () => {
+    const onRemove = vi.fn()
+    const { rerender } = bar({ tool: 'select', corner: { removable: true, onRemove } })
+    fireEvent.click(button('Fjern hjørne'))
+    expect(onRemove).toHaveBeenCalledTimes(1)
+    rerender({ corner: { removable: false, onRemove } })
+    expect(button('Fjern hjørne')).toBeDisabled()
+    // Only with Velg, and gone with the corner
+    rerender({ tool: 'wall', corner: { removable: true, onRemove } })
+    expect(screen.queryByRole('button', { name: 'Fjern hjørne' })).not.toBeInTheDocument()
+    rerender({ tool: 'select', corner: null })
+    expect(screen.queryByRole('button', { name: 'Fjern hjørne' })).not.toBeInTheDocument()
+  })
+
+  it('shows «Fjern hjørne» to a mouse too when it is handed a corner (touch on a laptop screen)', () => {
+    bar({ tool: 'select', coarse: false, corner: { removable: true, onRemove: vi.fn() } })
+    expect(button('Fjern hjørne')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Velg flere' })).not.toBeInTheDocument()
+  })
+
   it('sits above what covers the bottom of the plan', () => {
     bar({ tool: 'wall', bottom: 120 })
     expect(toolbar()).toHaveStyle({ bottom: '128px' })

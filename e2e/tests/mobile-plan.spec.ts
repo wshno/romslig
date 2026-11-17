@@ -18,7 +18,7 @@ interface StoredProject {
   scenarios: {
     walls: { id: string; a: Vec2; b: Vec2 }[]
     openings: { wallId: string }[]
-    rooms: unknown[]
+    rooms: { polygon: Vec2[] }[]
     furniture: { id: string; catalogId: string; x: number; y: number }[]
   }[]
 }
@@ -337,6 +337,53 @@ test.describe('@mobile fingers on the plan', () => {
       await tap(page, p.screen(table))
       await expect(summary).toHaveCount(0)
       await expect(page.locator('.inspector-header h3')).toHaveText('Møbel')
+    } finally {
+      await removeProject(page, id)
+    }
+  })
+
+  test('a touched corner of a hand-drawn room goes with «Fjern hjørne»', async ({ page }) => {
+    const id = await createProject(page, projectName('fjern-hjørne'))
+    try {
+      // A room of four corners drawn with the room tool on an empty plan (so no walls bound it and its
+      // corners get handles), high in the plan: once it is selected the sheet comes up over the lower half
+      await tool(page, 'Rom').tap()
+      let p = await plan(page)
+      const top = 60 - p.box.height / 2
+      for (const [dx, dy] of [
+        [-120, top],
+        [120, top],
+        [120, top + 160],
+        [-120, top + 160],
+      ] as const)
+        await tap(page, p.at(dx, dy))
+      await drawBar(page).getByRole('button', { name: 'Ferdig' }).tap()
+      await expect.poll(async () => (await stored(page, id)).rooms[0]?.polygon.length).toBe(4)
+      await expect(page.locator('.inspector-header h3')).toHaveText('Rom')
+
+      // With Velg the selected room has its corner handles; no corner touched yet, so no button
+      await tool(page, 'Velg').tap()
+      await expect(drawBar(page).getByRole('button', { name: 'Velg flere' })).toBeVisible()
+      await expect(drawBar(page).getByRole('button', { name: 'Fjern hjørne' })).toHaveCount(0)
+
+      // Touch the top right corner, then the button
+      p = await plan(page)
+      const corners = (await stored(page, id)).rooms[0]!.polygon
+      const topRight = corners.reduce((best, c) => (c.x - c.y > best.x - best.y ? c : best))
+      await tap(page, p.screen(topRight))
+      const remove = drawBar(page).getByRole('button', { name: 'Fjern hjørne' })
+      await expect(remove).toBeEnabled()
+      await remove.tap()
+      await expect.poll(async () => (await stored(page, id)).rooms[0]!.polygon.length).toBe(3)
+      const left = (await stored(page, id)).rooms[0]!.polygon
+      expect(left).not.toContainEqual(topRight)
+      // The corner is gone, and so is the button; the room is still selected
+      await expect(remove).toHaveCount(0)
+      await expect(page.locator('.inspector-header h3')).toHaveText('Rom')
+
+      // Three corners are the least a room has: touching one offers the button, but it does nothing
+      await tap(page, p.screen(left[0]!))
+      await expect(drawBar(page).getByRole('button', { name: 'Fjern hjørne' })).toBeDisabled()
     } finally {
       await removeProject(page, id)
     }
