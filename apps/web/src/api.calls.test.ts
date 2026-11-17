@@ -118,10 +118,11 @@ describe('preparing images', () => {
     await expect(preparePlanPng(photo())).rejects.toThrow('Klarte ikke å lese bildet.')
   })
 
-  it('downscales a photo to a JPEG of at most 1568 px', async () => {
-    const { ctx, bitmap } = stubImages({ width: 3136, height: 1000 })
+  it('downscales a photo to an upright JPEG of at most 1568 px', async () => {
+    const { ctx, bitmap, createImageBitmap } = stubImages({ width: 3136, height: 1000 })
 
     await expect(prepareImage(photo())).resolves.toEqual({ mediaType: 'image/jpeg', data: 'QUJD' })
+    expect(createImageBitmap).toHaveBeenCalledWith(expect.any(File), { imageOrientation: 'from-image' })
     expect(ctx.drawImage).toHaveBeenCalledWith(bitmap, 0, 0, 1568, 500)
   })
 

@@ -81,7 +81,8 @@ export function DirectionPicker({
           const active = e.side === value
           return (
             <g key={`${a.x}:${a.y}:${b.x}:${b.y}`} className="edge" onClick={() => onChange(active ? null : e.side)}>
-              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={16} />
+              {/* The hit area; styles.css widens it for fingers */}
+              <line className="hit" x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={16} />
               <line
                 x1={a.x}
                 y1={a.y}
@@ -110,7 +111,7 @@ export function DirectionPicker({
         {cameraAt && <circle cx={cameraAt.x} cy={cameraAt.y} r={4.5} fill="#1d4ed8" pointerEvents="none" />}
       </svg>
       <span className={value ? '' : 'muted'}>
-        {value ? `Ser mot veggen ${SIDE_NAMES[value]}` : 'Klikk på veggen du så mot'}
+        {value ? `Ser mot veggen ${SIDE_NAMES[value]}` : 'Velg veggen du så mot'}
       </span>
     </div>
   )

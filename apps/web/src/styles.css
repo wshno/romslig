@@ -921,6 +921,96 @@ select {
 .recognize > * {
   min-width: 0;
 }
+.photo-thumb {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+}
+.recognize-actions {
+  display: grid;
+  gap: 8px;
+}
+.recognize-actions .row {
+  flex-wrap: wrap;
+}
+.photo-entry {
+  display: grid;
+  gap: 8px;
+}
+.photo-entry h4 {
+  margin: 0;
+}
+.photo-entry-button {
+  width: 100%;
+  font-weight: 600;
+}
+.room-picker {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.room-picker button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+}
+.room-picker i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+.room-picker span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The camera button (and "fra" in "Velg fra bilder") is for phones and tablets; a desktop picks files */
+@media not all and (pointer: coarse) {
+  .recognize .coarse-only {
+    display: none;
+  }
+}
+/* Fingers: each photo gets the full width with a large direction picker right under it, every
+   wall in the picker is at least 44 px to hit, and the buttons stay in reach at the bottom. */
+@media (pointer: coarse) {
+  .photo-list li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .photo-list img {
+    width: 100%;
+    height: auto;
+    max-height: 220px;
+  }
+  .photo-thumb {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+  .photo-thumb .link,
+  .room-picker button,
+  .photo-entry-button,
+  .recognize-actions button {
+    min-height: 44px;
+  }
+  .direction-picker svg {
+    max-width: 360px;
+  }
+  .direction-picker .hit {
+    stroke-width: 32px;
+  }
+  .recognize-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    background: #f8fafc;
+    padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+  }
+}
 
 .modal-backdrop {
   position: fixed;
