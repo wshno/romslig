@@ -1466,3 +1466,42 @@ select {
     min-height: 40px;
   }
 }
+
+/* Touch in the 3D view. The browser must not take a finger on the view for scrolling or zooming the
+   page, in either camera mode: OrbitControls sets this on the canvas's wrapper while it runs and
+   resets it when "Gå rundt" replaces it, so it is set here on the canvas itself. */
+.viewer3d canvas {
+  touch-action: none;
+}
+/* The stick for walking with a thumb (TouchWalk.tsx), bottom left over the view */
+.walk-stick {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: #0f172a33;
+  border: 2px solid #ffffffb3;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.walk-stick-knob {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #ffffffe6;
+  box-shadow: 0 1px 4px #0f172a66;
+  pointer-events: none;
+}
+/* On a touch screen the stick has the bottom left corner, so the hint goes up under the buttons */
+.walk-hint.touch {
+  top: 56px;
+  bottom: auto;
+  max-width: calc(100% - 32px);
+  text-align: center;
+}

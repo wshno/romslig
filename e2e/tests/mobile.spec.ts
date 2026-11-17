@@ -102,3 +102,51 @@ test.describe('@mobile tablet layout', () => {
     }
   })
 })
+
+/** The camera position the viewer writes onto itself, at the walker's eye height (1.6 m). */
+const AT_EYE_HEIGHT = /^-?[\d.]+,1\.60,-?[\d.]+$/
+
+test.describe('@mobile 3D on a touch screen', () => {
+  test('"Gå rundt" gives a stick, and pushing it walks the camera', async ({ page }) => {
+    const id = await createProject(page, projectName('gå'))
+    try {
+      await page.getByRole('button', { name: '3D', exact: true }).tap()
+      const viewer = page.locator('.viewer3d')
+      const canvas = viewer.locator('canvas')
+      await expect(viewer).toBeVisible()
+      // The canvas is closed to the browser's own panning and zooming, in both camera modes
+      await expect(canvas).toHaveCSS('touch-action', 'none')
+
+      await viewer.getByRole('button', { name: 'Gå rundt' }).tap()
+      const stick = viewer.getByRole('group', { name: 'Styrespak for å gå' })
+      await expect(stick).toBeVisible()
+      await expect(viewer.locator('.walk-hint')).toContainText('Spaken = gå')
+      await expect(canvas).toHaveCSS('touch-action', 'none')
+
+      // The viewer writes the camera position onto itself (data-camera="x,y,z") a few times a second.
+      // Wait for the walker's eye height, so the start is the walk's and not the bird's-eye view's.
+      await expect(viewer).toHaveAttribute('data-camera', AT_EYE_HEIGHT)
+      const start = await viewer.getAttribute('data-camera')
+
+      // A real touch (CDP), not a mouse: the thumb goes down in the middle of the stick, pushes it up
+      // and holds it there while the camera walks
+      const box = (await stick.boundingBox())!
+      const x = box.x + box.width / 2
+      const y = box.y + box.height / 2
+      const cdp = await page.context().newCDPSession(page)
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - box.height / 2 }] })
+      await expect.poll(() => viewer.getAttribute('data-camera')).not.toBe(start)
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      // Still at eye height: walking does not fly
+      await expect(viewer).toHaveAttribute('data-camera', AT_EYE_HEIGHT)
+
+      // "Fugleperspektiv" ends the walk and takes the stick away
+      await viewer.getByRole('button', { name: 'Fugleperspektiv' }).tap()
+      await expect(stick).toHaveCount(0)
+      await expect(viewer.locator('.walk-hint')).toHaveCount(0)
+    } finally {
+      await removeProject(page, id)
+    }
+  })
+})
