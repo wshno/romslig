@@ -86,7 +86,7 @@ export function RoomShape({ room, selected, interactive }: { room: Room; selecte
       stroke={selected ? '#2563eb' : undefined}
       strokeWidth={2}
       strokeScaleEnabled={false}
-      onClick={(e) => {
+      onPointerClick={(e) => {
         if (!interactive) return
         e.cancelBubble = true
         pick({ kind: 'room', id: room.id }, e.evt.shiftKey)

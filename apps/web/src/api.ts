@@ -188,9 +188,12 @@ export async function preparePlanForAi(project: Project): Promise<{ image: PlanI
   }
 }
 
-/** Downscales a photo in the browser (long edge ≤ 1568 px, JPEG) and returns it as base64. */
+/**
+ * Downscales a photo in the browser (long edge ≤ 1568 px, JPEG) and returns it as base64. The
+ * camera's orientation tag is applied, so a photo taken upright is not sent lying on its side.
+ */
 export async function prepareImage(file: File): Promise<{ mediaType: 'image/jpeg'; data: string }> {
-  const bitmap = await createImageBitmap(file)
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
   const scale = Math.min(1, 1568 / Math.max(bitmap.width, bitmap.height))
   const canvas = document.createElement('canvas')
   canvas.width = Math.round(bitmap.width * scale)

@@ -17,6 +17,7 @@ import {
 } from '@romslig/shared'
 import { beginGesture, endGesture, useStore } from '../store.ts'
 import { fmtM } from '../theme.ts'
+import { handleHitStroke, useHitSizes } from './hit.ts'
 import { Label } from './planShapes.tsx'
 import { SNAP_GRID, wallQuad } from './planStyle.ts'
 
@@ -38,15 +39,17 @@ export function WallHandles({
   // move is worked out from that start, so connected walls, openings and rooms follow the pointer
   // instead of drifting with each step.
   const dragRef = useRef<{ base: Scenario; still: Wall[] } | null>(null)
+  const hit = useHitSizes()
   const mid = add(wall.a, mul(sub(wall.b, wall.a), 0.5))
   const handle = (end: WallEnd) => (
     <Circle
       x={wall[end].x}
       y={wall[end].y}
-      radius={6 / scale}
+      radius={hit.handle / scale}
       fill="#fff"
       stroke="#2563eb"
       strokeWidth={2}
+      hitStrokeWidth={handleHitStroke(hit.handle, hit.handleHit)}
       strokeScaleEnabled={false}
       draggable
       onDragStart={() => {
@@ -62,7 +65,7 @@ export function WallHandles({
           {
             walls: drag.still,
             anchor: end === 'a' ? wall.b : wall.a,
-            tolerance: 12 / scale,
+            tolerance: hit.snap / scale,
             ortho: !shiftRef.current,
             grid: e.evt.altKey ? undefined : SNAP_GRID,
           },
@@ -119,18 +122,19 @@ export function WallBody({
   // The variant as it was when the drag started, where the pointer grabbed the wall, and the
   // wall's left normal (moveWall's positive direction)
   const dragRef = useRef<{ base: Scenario; from: Vec2; normal: Vec2 } | null>(null)
+  const hit = useHitSizes()
   return (
     <Line
       name="wall-body"
       points={wallQuad(wall, scenario.walls)}
       closed
       fill="transparent"
-      hitStrokeWidth={8}
+      hitStrokeWidth={hit.wall}
       strokeScaleEnabled={false}
       draggable
       onMouseEnter={(e) => setCursor(e, 'move')}
       onMouseLeave={(e) => setCursor(e, '')}
-      onClick={(e) => {
+      onPointerClick={(e) => {
         e.cancelBubble = true
         // It lies over the selected wall, so it takes the Shift+click that toggles the wall out
         if (e.evt.shiftKey) useStore.getState().pick({ kind: 'wall', id: wall.id }, true)

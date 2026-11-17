@@ -73,7 +73,7 @@ export function OpeningShape(props: {
       y={p0.y}
       rotation={angle}
       draggable={props.interactive && props.movable}
-      onClick={(e) => {
+      onPointerClick={(e) => {
         if (!props.interactive) return
         e.cancelBubble = true
         props.onSelect(e.evt.shiftKey)

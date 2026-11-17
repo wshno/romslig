@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   findFreeSpot,
   getCatalogItem,
@@ -10,7 +10,6 @@ import {
   type CustomFurniture,
   catalogIssueUrl,
   proposalToCustomFurniture,
-  type PlanSide,
   type Room,
 } from '@romslig/shared'
 import { recognizeFurniture } from '@romslig/ai'
@@ -18,6 +17,7 @@ import { prepareImage } from '../api.ts'
 import { withAi } from '../ai/client.ts'
 import { DirectionPicker } from './DirectionPicker.tsx'
 import { activeScenario, useStore } from '../store.ts'
+import { clearSession, readSession, writeSession, type PreparedPhoto } from './recognizeSession.ts'
 
 const CONFIDENCE = { high: 'sikker', medium: 'ganske sikker', low: 'usikker' } as const
 const SIDES = {
@@ -58,11 +58,30 @@ function placeRecognized(items: RecognizedItem[], room: Room): FurnitureItem[] {
   return placed
 }
 
+/** At most this many photos per recognition (the API takes 1–4). */
+const MAX_PHOTOS = 4
+
+/**
+ * Asks the device to keep the screen on while Claude looks at the photos (30–60 s). Resolves to
+ * null where the API is missing or refuses (no permission, battery saver), which costs nothing.
+ */
+async function keepScreenOn(): Promise<WakeLockSentinel | null> {
+  try {
+    return 'wakeLock' in navigator ? await navigator.wakeLock.request('screen') : null
+  } catch {
+    return null
+  }
+}
+
 export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void }) {
   const project = useStore((s) => s.project)!
-  const [files, setFiles] = useState<File[]>([])
-  /** The plan wall each photo faces (same order as files). */
-  const [facing, setFacing] = useState<(PlanSide | null)[]>([])
+  /** Downscaled photos with the plan wall each faces, restored if the tab was reloaded. */
+  const [photos, setPhotos] = useState<PreparedPhoto[]>(() => {
+    const saved = readSession(project.id)
+    return saved?.roomId === room.id ? saved.photos.slice(0, MAX_PHOTOS) : []
+  })
+  /** Photos picked but still being downscaled. */
+  const [preparing, setPreparing] = useState(0)
   const scenario = activeScenario(project)
   const [hint, setHint] = useState('')
   const [busy, setBusy] = useState(false)
@@ -71,19 +90,58 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
   const [chosen, setChosen] = useState<Set<number>>(() => new Set())
   /** Items to add as the project's own furniture type instead of the nearest catalog item. */
   const [asCustom, setAsCustom] = useState<Set<number>>(() => new Set())
-  const previews = useMemo(
-    () => files.map((f) => ({ key: `${f.name}:${f.size}`, url: URL.createObjectURL(f) })),
-    [files],
-  )
-  useEffect(() => () => previews.forEach((p) => URL.revokeObjectURL(p.url)), [previews])
+  const cameraRef = useRef<HTMLInputElement>(null)
+  const galleryRef = useRef<HTMLInputElement>(null)
+  const newestRef = useRef<HTMLLIElement>(null)
+  const shownRef = useRef(photos.length)
+
+  // Keep the room and photos for this tab, so a reload while the camera is open brings them back
+  useEffect(() => {
+    writeSession({ projectId: project.id, roomId: room.id, photos })
+  }, [project.id, room.id, photos])
+
+  // Bring the newest photo and its direction picker into view after each one is added
+  useEffect(() => {
+    if (photos.length > shownRef.current) newestRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+    shownRef.current = photos.length
+  }, [photos.length])
+
+  const full = photos.length + preparing >= MAX_PHOTOS
+
+  /** Adds picked photos to the list (never replaces it), downscaled one at a time to spare memory. */
+  const addPhotos = async (input: HTMLInputElement) => {
+    const picked = Array.from(input.files ?? [])
+    // Without this, picking the same file again fires no change event
+    input.value = ''
+    const take = picked.slice(0, Math.max(0, MAX_PHOTOS - photos.length - preparing))
+    if (!take.length) return
+    setError(picked.length > take.length ? `Bare ${MAX_PHOTOS} bilder kan brukes. De siste ble ikke lagt til.` : null)
+    setPreparing((n) => n + take.length)
+    for (const file of take) {
+      try {
+        const image = await prepareImage(file)
+        setPhotos((list) =>
+          list.length >= MAX_PHOTOS ? list : [...list, { id: newId('ph_'), ...image, facing: null }],
+        )
+      } catch {
+        setError('Klarte ikke å lese bildet. Prøv et annet (JPEG eller PNG).')
+      } finally {
+        setPreparing((n) => n - 1)
+      }
+    }
+  }
+
+  const close = () => {
+    clearSession()
+    onClose()
+  }
 
   const run = async () => {
     setBusy(true)
     setError(null)
+    const wakeLock = await keepScreenOn()
     try {
-      const images = await Promise.all(
-        files.map(async (file, i) => ({ ...(await prepareImage(file)), facing: facing[i] ?? null })),
-      )
+      const images = photos.map((p) => ({ mediaType: p.mediaType, data: p.data, facing: p.facing }))
       const r = await withAi((client) => recognizeFurniture(client, { project, roomId: room.id, hint, images }))
       if (!r) return // no key yet: the key dialog is open
       setResult(r)
@@ -93,6 +151,7 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
       setError((e as Error).message)
     } finally {
       setBusy(false)
+      wakeLock?.release().catch(() => {})
     }
   }
 
@@ -108,63 +167,115 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
       custom.push(own)
       return [{ ...it, catalogId: own.id }]
     })
-    if (custom.length) useStore.getState().addCustomFurniture(custom)
-    useStore.getState().addFurnitureItems(placeRecognized(selected, room))
-    onClose()
+    const store = useStore.getState()
+    if (custom.length) store.addCustomFurniture(custom)
+    const placed = placeRecognized(selected, room)
+    store.addFurnitureItems(placed)
+    close()
+    // Show the new furniture in the plan, selected, so it can be moved into place straight away
+    if (store.view === '3d' || store.view === 'compare') store.setView('2d')
+    placed.forEach((f, i) => {
+      if (i === 0) store.select({ kind: 'furniture', id: f.id })
+      else store.pick({ kind: 'furniture', id: f.id }, true)
+    })
   }
 
   return (
     <section className="recognize">
       <div className="row spread">
         <h4>Gjenkjenn møbler fra bilder</h4>
-        <button className="link" onClick={onClose}>
+        <button className="link" onClick={close}>
           Lukk
         </button>
       </div>
       {!result && (
         <>
           <p className="muted">
-            Last opp 1–4 bilder av «{room.name}». Ta dem gjerne fra hjørnene, så hele rommet er med. Møblene legges inn
-            i varianten «{activeScenario(project).name}».
+            Bruk 1–4 bilder av «{room.name}». Ta dem gjerne fra hjørnene, så hele rommet er med. Møblene legges inn i
+            varianten «{activeScenario(project).name}».
           </p>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(e) => {
-              const next = Array.from(e.target.files ?? []).slice(0, 4)
-              setFiles(next)
-              setFacing(next.map(() => null))
-            }}
-          />
-          {files.length > 0 && (
+          {photos.length > 0 && (
             <>
               <p className="muted">
-                For hvert bilde: klikk på veggen du så mot da du tok det. Da vet Claude hvilken vegg som er hvor.
+                For hvert bilde: velg veggen du så mot da du tok det. Da vet Claude hvilken vegg som er hvor.
               </p>
               <ul className="photo-list">
-                {previews.map((p, i) => (
-                  <li key={p.key}>
-                    <img src={p.url} alt={`Bilde ${i + 1}`} />
-                    <DirectionPicker
-                      scenario={scenario}
-                      room={room}
-                      value={facing[i] ?? null}
-                      onChange={(side) => setFacing(facing.map((v, j) => (j === i ? side : v)))}
-                    />
-                  </li>
-                ))}
+                {photos.map((p, i) => {
+                  const last = i === photos.length - 1
+                  return (
+                    <li key={p.id} ref={last ? newestRef : undefined} className={last ? 'newest' : undefined}>
+                      <div className="photo-thumb">
+                        <img src={`data:${p.mediaType};base64,${p.data}`} alt={`Bilde ${i + 1}`} />
+                        <button
+                          type="button"
+                          className="link danger"
+                          aria-label={`Fjern bilde ${i + 1}`}
+                          disabled={busy}
+                          onClick={() => setPhotos(photos.filter((x) => x.id !== p.id))}
+                        >
+                          Fjern
+                        </button>
+                      </div>
+                      <DirectionPicker
+                        scenario={scenario}
+                        room={room}
+                        value={p.facing}
+                        onChange={(side) => setPhotos(photos.map((x) => (x.id === p.id ? { ...x, facing: side } : x)))}
+                      />
+                    </li>
+                  )
+                })}
               </ul>
             </>
           )}
+          {preparing > 0 && <p className="muted">Gjør klar bildet…</p>}
+          {photos.length >= MAX_PHOTOS && <p className="muted">Fire bilder er nok. Fjern ett for å bytte det ut.</p>}
           <label className="field">
             <span>Tips til Claude</span>
             <input value={hint} onChange={(e) => setHint(e.target.value)} placeholder="f.eks. sengen er 180 cm bred" />
           </label>
-          <button className="primary" disabled={!files.length || busy} onClick={() => void run()}>
-            {busy ? 'Claude ser på bildene…' : '✨ Gjenkjenn møbler'}
-          </button>
-          {busy && <p className="muted">Dette tar gjerne et halvt til ett minutt.</p>}
+          <div className="recognize-actions">
+            <div className="row">
+              {/* The camera button shows on touch devices only; a desktop gets the file picker alone */}
+              <button
+                type="button"
+                className="coarse-only"
+                disabled={full || busy}
+                onClick={() => cameraRef.current?.click()}
+              >
+                📷 Ta bilde
+              </button>
+              <button type="button" disabled={full || busy} onClick={() => galleryRef.current?.click()}>
+                Velg <span className="coarse-only">fra</span> bilder
+              </button>
+              <input
+                ref={cameraRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                hidden
+                data-testid="photo-camera"
+                onChange={(e) => void addPhotos(e.currentTarget)}
+              />
+              <input
+                ref={galleryRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                data-testid="photo-files"
+                onChange={(e) => void addPhotos(e.currentTarget)}
+              />
+            </div>
+            <button className="primary" disabled={!photos.length || preparing > 0 || busy} onClick={() => void run()}>
+              {busy ? 'Claude ser på bildene…' : '✨ Gjenkjenn møbler'}
+            </button>
+          </div>
+          {busy && (
+            <p className="muted" role="status">
+              Dette tar gjerne et halvt til ett minutt. La siden stå åpen så lenge.
+            </p>
+          )}
         </>
       )}
       {error && <p className="error">{error}</p>}
@@ -216,7 +327,7 @@ export function RecognizePanel({ room, onClose }: { room: Room; onClose(): void 
             </ul>
           )}
           {result.notes && <p className="muted">{result.notes}</p>}
-          <div className="row">
+          <div className="row recognize-actions">
             <button className="primary" disabled={!chosen.size} onClick={accept}>
               Legg inn {chosen.size} møbler
             </button>

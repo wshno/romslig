@@ -21,7 +21,7 @@ import { selectedIds, selectionSummary, singleSelected } from '../selection.ts'
 import { ROOM_COLORS, ROOM_LABELS, fmtM2 } from '../theme.ts'
 import { FurnitureCatalog, FurnitureList, FurnitureProps } from './FurniturePanel.tsx'
 import { AssistantPanel, NotesList } from './AssistantPanel.tsx'
-import { RecognizePanel } from './RecognizePanel.tsx'
+import { PhotoEntry } from './PhotoEntry.tsx'
 import { CeilingProps, FixtureProps, InstallationsOverview, RunProps } from './InstallationsPanel.tsx'
 import { Num } from './fields.tsx'
 
@@ -80,6 +80,9 @@ export function Inspector() {
 function FurnitureTab() {
   return (
     <div className="props">
+      <section>
+        <PhotoEntry />
+      </section>
       <FurnitureCatalog />
       <section>
         <h4>I denne varianten</h4>
@@ -254,7 +257,6 @@ function RoomProps({ room, walls }: { room: Room; walls: Wall[] }) {
     [room.polygon, walls],
   )
   const dev = areaDeviation(room)
-  const [recognizing, setRecognizing] = useState(false)
   return (
     <div className="props">
       <Header title="Rom" />
@@ -301,11 +303,7 @@ function RoomProps({ room, walls }: { room: Room; walls: Wall[] }) {
       )}
       <h4>Møbler i rommet</h4>
       <FurnitureList roomId={room.id} />
-      {recognizing ? (
-        <RecognizePanel room={room} onClose={() => setRecognizing(false)} />
-      ) : (
-        <button onClick={() => setRecognizing(true)}>📷 Gjenkjenn møbler fra bilder</button>
-      )}
+      <PhotoEntry room={room} label="📷 Gjenkjenn møbler fra bilder" />
       <NotesList roomId={room.id} />
       <button
         onClick={() => {
@@ -327,6 +325,9 @@ function Overview() {
   const [msg, setMsg] = useState<string | null>(null)
   return (
     <div className="props">
+      <section>
+        <PhotoEntry />
+      </section>
       <section>
         <h4>1. Målestokk</h4>
         {project.calibration.calibrated ? (
