@@ -13,6 +13,7 @@ import {
 import { activeScenario, beginGesture, endGesture, useStore } from '../store.ts'
 import { isSelected, selectedIds } from '../selection.ts'
 import { handleHitStroke, useHitSizes } from './hit.ts'
+import { isAdditive, isFreeAngle } from './modifiers.ts'
 
 const ROTATE_HANDLE_GAP = 0.35
 
@@ -30,7 +31,7 @@ interface Props {
 /**
  * A furniture item in plan view: footprint, front edge, label, free-space zones and handles.
  *
- * A press selects it alone, or with Shift toggles it in the selection. A press on an item that is
+ * A press selects it alone, or with Shift («Velg flere») toggles it in the selection. A press on an item that is
  * already selected keeps the selection, so dragging it moves every selected furniture item along
  * (one undo step, without wall snapping); a click without dragging then selects it alone. Dragged
  * alone, it snaps to walls as before (Shift: no snapping).
@@ -81,16 +82,16 @@ export function Furniture2D({ item, issues, selected, alone, interactive, scale,
         onPointerDown={(e) => {
           if (!interactive) return
           e.cancelBubble = true
-          const shift = e.evt.shiftKey
-          if (shift || !isSelected(useStore.getState().selection, item.id))
-            pick({ kind: 'furniture', id: item.id }, shift)
+          const adding = isAdditive(e.evt)
+          if (adding || !isSelected(useStore.getState().selection, item.id))
+            pick({ kind: 'furniture', id: item.id }, adding)
         }}
         onPointerClick={(e) => {
           if (!interactive) return
           e.cancelBubble = true
           // A click (no drag) on one of several selected items selects it alone
           const { selection } = useStore.getState()
-          if (!e.evt.shiftKey && selection.length > 1) pick({ kind: 'furniture', id: item.id }, false)
+          if (!isAdditive(e.evt) && selection.length > 1) pick({ kind: 'furniture', id: item.id }, false)
         }}
         onDragStart={(e) => {
           e.cancelBubble = true
@@ -190,7 +191,7 @@ export function Furniture2D({ item, issues, selected, alone, interactive, scale,
             const dx = e.target.x() - item.x
             const dy = e.target.y() - item.y
             let rotation = (Math.atan2(-dx, dy) * 180) / Math.PI
-            if (!shiftRef.current) rotation = Math.round(rotation / 15) * 15
+            if (!isFreeAngle(shiftRef.current)) rotation = Math.round(rotation / 15) * 15
             rotation = ((rotation % 360) + 360) % 360
             updateFurniture(item.id, { rotation })
             e.target.position(add({ x: item.x, y: item.y }, mul(frontDir(rotation), d / 2 + ROTATE_HANDLE_GAP)))

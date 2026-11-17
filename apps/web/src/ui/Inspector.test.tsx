@@ -352,6 +352,17 @@ describe('a selected opening', () => {
     expect(screen.getByRole('heading', { name: 'Vindu' })).toBeInTheDocument()
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
   })
+
+  it('duplicates it with a button, not only with Ctrl+D', () => {
+    const wall = room()
+    s().addOpening('door', wall.id, 1)
+    s().select({ kind: 'opening', id: scenario().openings[0]!.id })
+    render(<Inspector />)
+
+    fireEvent.click(button('Dupliser'))
+    expect(scenario().openings).toHaveLength(2)
+    expect(scenario().openings[1]!.wallId).toBe(wall.id)
+  })
 })
 
 describe('a selected room', () => {
@@ -459,6 +470,19 @@ describe('several selected', () => {
     expect(scenario().furniture.length).toBeLessThan(4)
   })
 
+  it('turns each selected piece with buttons, as Q and E do', () => {
+    s().addFurniture('lenestol', { x: 1, y: 1 }, { snap: false })
+    s().addFurniture('spisestol', { x: 3, y: 1 }, { snap: false })
+    s().setSelection(scenario().furniture.map((f) => ({ kind: 'furniture' as const, id: f.id })))
+    render(<Inspector />)
+
+    fireEvent.click(button('↻ 90°'))
+    expect(scenario().furniture.map((f) => f.rotation)).toEqual([90, 90])
+    fireEvent.click(button('↺ 90°'))
+    fireEvent.click(button('↺ 90°'))
+    expect(scenario().furniture.map((f) => f.rotation)).toEqual([270, 270])
+  })
+
   it('cannot duplicate walls, and goes back to the overview', () => {
     const wall = room()
     s().setSelection([
@@ -469,6 +493,8 @@ describe('several selected', () => {
 
     expect(button('Dupliser')).toBeDisabled()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    // Nothing to turn either
+    expect(screen.queryByRole('button', { name: '↻ 90°' })).not.toBeInTheDocument()
     fireEvent.click(button('← Oversikt'))
     expect(s().selection).toHaveLength(0)
   })

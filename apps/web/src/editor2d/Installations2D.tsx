@@ -12,6 +12,7 @@ import { beginGesture, endGesture, useStore } from '../store.ts'
 import { isSelected, singleSelected, type Selection, type SelectionKind } from '../selection.ts'
 import { handleHitStroke, useHitSizes } from './hit.ts'
 import { CATEGORY_COLORS, fixturePlacement } from './installationUtils.ts'
+import { isAdditive } from './modifiers.ts'
 
 const RUN_DASH: Record<string, number[] | undefined> = {
   wall: undefined,
@@ -50,7 +51,7 @@ export function Installations2D({ scenario, scale, interactive, selection }: Pro
     onPointerDown: (e: { cancelBubble: boolean; evt: PointerEvent }) => {
       if (!interactive) return
       e.cancelBubble = true
-      pick({ kind, id }, e.evt.shiftKey)
+      pick({ kind, id }, isAdditive(e.evt))
     },
     ...keepStageStill(interactive),
     onPointerClick: (e: { cancelBubble: boolean }) => {
@@ -186,7 +187,7 @@ function FixtureSymbol(props: {
       onPointerDown={(e) => {
         if (!props.interactive) return
         e.cancelBubble = true
-        props.onSelect(e.evt.shiftKey)
+        props.onSelect(isAdditive(e.evt))
       }}
       {...keepStageStill(props.interactive)}
       onPointerClick={(e) => {

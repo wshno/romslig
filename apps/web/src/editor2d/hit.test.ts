@@ -1,31 +1,9 @@
 // @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react'
+import { renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { HIT, handleHitStroke, hitSizes, useCoarsePointer, useHitSizes } from './hit.ts'
-
-/** A matchMedia stand-in (jsdom has none) whose '(pointer: coarse)' answer can be changed. */
-function stubMatchMedia(coarse: boolean) {
-  const listeners = new Set<() => void>()
-  const mql = {
-    get matches() {
-      return coarse
-    },
-    media: '(pointer: coarse)',
-    addEventListener: (_: string, l: () => void) => listeners.add(l),
-    removeEventListener: (_: string, l: () => void) => listeners.delete(l),
-  }
-  vi.stubGlobal(
-    'matchMedia',
-    vi.fn((q: string) => (q === '(pointer: coarse)' ? mql : { ...mql, matches: false })),
-  )
-  return {
-    listeners,
-    set(next: boolean) {
-      coarse = next
-      listeners.forEach((l) => l())
-    },
-  }
-}
+import { COARSE_QUERY, NARROW_QUERY } from '../device.ts'
+import { stubMatchMedia } from '../test/matchMedia.ts'
+import { HIT, handleHitStroke, hitSizes, useHitSizes } from './hit.ts'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -60,25 +38,30 @@ describe('hit sizes', () => {
   })
 })
 
-describe('useCoarsePointer', () => {
-  it('is false without matchMedia (jsdom, node)', () => {
+// The pointer comes from device.ts, the app's one useCoarsePointer: these check that the plan's
+// sizes follow it
+describe('useHitSizes', () => {
+  it('gives the desktop sizes without matchMedia (jsdom, node)', () => {
     expect(typeof window.matchMedia).toBe('undefined')
-    const { result } = renderHook(() => useCoarsePointer())
-    expect(result.current).toBe(false)
     expect(renderHook(() => useHitSizes()).result.current).toBe(HIT.fine)
   })
 
-  it('follows (pointer: coarse), also when it changes', () => {
-    const media = stubMatchMedia(true)
+  it('follows (pointer: coarse), also when it changes, and stops listening when unmounted', () => {
+    const media = stubMatchMedia({ [COARSE_QUERY]: true })
     const { result, unmount } = renderHook(() => useHitSizes())
     expect(result.current).toBe(HIT.coarse)
 
-    act(() => media.set(false))
+    media.set(COARSE_QUERY, false)
     expect(result.current).toBe(HIT.fine)
-    act(() => media.set(true))
+    media.set(COARSE_QUERY, true)
     expect(result.current).toBe(HIT.coarse)
 
     unmount()
-    expect(media.listeners.size).toBe(0)
+    expect(media.listening(COARSE_QUERY)).toBe(0)
+  })
+
+  it('does not take a narrow window for a finger: the layout follows the width, the sizes the pointer', () => {
+    stubMatchMedia({ [NARROW_QUERY]: true })
+    expect(renderHook(() => useHitSizes()).result.current).toBe(HIT.fine)
   })
 })

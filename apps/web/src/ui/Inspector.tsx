@@ -16,6 +16,7 @@ import {
 import { digitizePlan } from '@romslig/ai'
 import { api, preparePlanForAi } from '../api.ts'
 import { withAi } from '../ai/client.ts'
+import { useCoarsePointer } from '../device.ts'
 import { activeScenario, useStore, type InspectorTab } from '../store.ts'
 import { selectedIds, selectionSummary, singleSelected } from '../selection.ts'
 import { ROOM_COLORS, ROOM_LABELS, fmtM2 } from '../theme.ts'
@@ -112,7 +113,9 @@ function ManySelected() {
   const project = useStore((s) => s.project)!
   const selection = useStore((s) => s.selection)
   const scenario = activeScenario(project)
-  const { select, deleteSelected, duplicateSelected, copySelectedFurnitureTo } = useStore.getState()
+  const { select, deleteSelected, duplicateSelected, copySelectedFurnitureTo, rotateSelectedFurniture } =
+    useStore.getState()
+  const coarse = useCoarsePointer()
   const furniture = selectedIds(selection, 'furniture').length
   const canDuplicate = selection.some((x) => x.kind === 'furniture' || x.kind === 'opening')
   const others = project.scenarios.filter((s) => s.id !== scenario.id)
@@ -140,6 +143,17 @@ function ManySelected() {
           Slett
         </button>
       </div>
+      {/* Q and E, for a finger: each selected piece turns about its own centre */}
+      {furniture > 0 && (
+        <div className="row">
+          <button onClick={() => rotateSelectedFurniture(-90)} title="Drei hvert av de valgte møblene (Q)">
+            ↺ 90°
+          </button>
+          <button onClick={() => rotateSelectedFurniture(90)} title="Drei hvert av de valgte møblene (E)">
+            ↻ 90°
+          </button>
+        </div>
+      )}
       {furniture > 0 && others.length > 0 && (
         <label className="field">
           <span>Kopier til variant …</span>
@@ -163,10 +177,17 @@ function ManySelected() {
         </label>
       )}
       {copied && <p className="ok">{copied}</p>}
-      <p className="muted">
-        Shift+klikk legger til eller fjerner én ting. Shift+dra på et tomt område velger alt innenfor. Dra et av møblene
-        for å flytte alle de valgte møblene; Q/E dreier hvert av dem.
-      </p>
+      {coarse ? (
+        <p className="muted">
+          Med «Velg flere» på legger et trykk til eller fjerner én ting, og en finger dratt over et tomt område velger
+          alt innenfor. Dra et av møblene for å flytte alle de valgte møblene.
+        </p>
+      ) : (
+        <p className="muted">
+          Shift+klikk legger til eller fjerner én ting. Shift+dra på et tomt område velger alt innenfor. Dra et av
+          møblene for å flytte alle de valgte møblene; Q/E dreier hvert av dem.
+        </p>
+      )}
     </div>
   )
 }
@@ -234,6 +255,12 @@ function OpeningProps({ o }: { o: Opening }) {
       <Num label="Høyde" value={o.height} onChange={(v) => update({ height: Math.max(0.2, v) })} />
       <Num label="Brystning" value={o.sill} onChange={(v) => update({ sill: Math.max(0, v) })} />
       <Num label="Posisjon (senter)" value={o.offset} onChange={(v) => update({ offset: v })} />
+      {/* Ctrl+D has a button here too, for a finger */}
+      <div className="row">
+        <button onClick={useStore.getState().duplicateSelected} title="Lag en kopi rett ved siden av (Ctrl+D)">
+          Dupliser
+        </button>
+      </div>
       {o.kind === 'door' && (
         <label className="field check">
           <input type="checkbox" checked={o.flip} onChange={(e) => update({ flip: e.target.checked })} />

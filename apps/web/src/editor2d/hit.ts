@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useCoarsePointer } from '../device.ts'
 
 /**
  * Sizes in screen pixels for what is grabbed or snapped to in the 2D plan, for a fine pointer
@@ -35,30 +35,10 @@ export const hitSizes = (coarse: boolean): HitSizes => (coarse ? HIT.coarse : HI
  */
 export const handleHitStroke = (radius: number, hit: number): number => Math.max(2, 2 * (hit - radius))
 
-const COARSE_QUERY = '(pointer: coarse)'
-
-/** matchMedia where there is one: jsdom and node have none, and count as a fine pointer. */
-const coarseQuery = (): MediaQueryList | null =>
-  typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(COARSE_QUERY) : null
-
-function subscribe(onChange: () => void) {
-  const mql = coarseQuery()
-  if (!mql) return () => {}
-  mql.addEventListener('change', onChange)
-  return () => mql.removeEventListener('change', onChange)
-}
-
-const isCoarse = () => coarseQuery()?.matches ?? false
-
 /**
- * True when the primary pointer is coarse (a phone or tablet). Follows changes, such as a tablet
- * docked to a keyboard with a touchpad, or the device toolbar in the browser's developer tools.
+ * The hit sizes for the current pointer. Follows changes, such as a tablet docked to a keyboard
+ * with a touchpad, or the device toolbar in the browser's developer tools.
  */
-export function useCoarsePointer(): boolean {
-  return useSyncExternalStore(subscribe, isCoarse, () => false)
-}
-
-/** The hit sizes for the current pointer. */
 export function useHitSizes(): HitSizes {
   return hitSizes(useCoarsePointer())
 }

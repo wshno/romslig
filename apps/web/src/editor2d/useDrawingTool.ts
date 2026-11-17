@@ -6,8 +6,10 @@ import { useStore, type Tool } from '../store.ts'
 import { useHitSizes } from './hit.ts'
 import { fixturePlacement } from './installationUtils.ts'
 import type { Measurement } from './measure.ts'
+import { isAdditive, isFreeAngle, isNoGrid } from './modifiers.ts'
 import type { PlanView } from './Plan2D.tsx'
 import { SNAP_GRID } from './planStyle.ts'
+import { MIN_TYPED_LENGTH, parseLength, typedWallEnd } from './wallLength.ts'
 
 export interface DrawingToolOptions {
   stageRef: RefObject<Konva.Stage | null>
@@ -35,10 +37,20 @@ export interface DrawingTool {
   measurement: Measurement | null
   /** What has been typed as the length of the wall being drawn (e.g. "3,2"), or null. */
   typedLength: string | null
+  /** Sets that length: the DrawBar's field edits the same text the keyboard does. */
+  setTypedLength(text: string | null): void
+  /** Places the wall being drawn at the typed length (Enter, or the DrawBar's «Sett»); false if there is none. */
+  commitTypedLength(): boolean
   /** Where the wall being drawn ends: the typed length toward the pointer, else the pointer. */
   wallEnd: Vec2 | null
   /** True while Shift is held (free angle / no snapping). */
   shiftRef: RefObject<boolean>
+  /** Two calibration points are picked: the real distance between them is asked for (CalibrateDialog). */
+  calibrating: boolean
+  /** Answers the calibration question: the distance in metres, or null to give up. */
+  finishCalibration(meters: number | null): void
+  /** Removes the measuring tool's measurement and stays in the tool. */
+  clearMeasurement(): void
   onPointerDown(e: KonvaEventObject<PointerEvent>): void
   onPointerMove(e?: KonvaEventObject<PointerEvent>): void
   onPointerUp(e: KonvaEventObject<PointerEvent>): void
@@ -71,6 +83,8 @@ export function useDrawingTool({
   const [calPts, setCalPts] = useState<Vec2[]>([])
   const [measurement, setMeasurement] = useState<Measurement | null>(null)
   const [typedLength, setTypedLength] = useState<string | null>(null)
+  /** Direction of the last wall placed in this chain: a typed length goes on straight ahead from it. */
+  const [chainDir, setChainDir] = useState<Vec2 | null>(null)
   const shiftRef = useRef(false)
   /** True while Alt is held (no grid snapping). */
   const altRef = useRef(false)
@@ -82,6 +96,7 @@ export function useDrawingTool({
   if (draftTool !== tool) {
     setDraftTool(tool)
     setTypedLength(null)
+    setChainDir(null)
     setAnchor(null)
     setRoomPts([])
     setCalPts([])
@@ -102,6 +117,7 @@ export function useDrawingTool({
       altRef.current = e.altKey
       if (e.key === 'Escape') {
         setTypedLength(null)
+        setChainDir(null)
         setAnchor(null)
         setRoomPts([])
         setCalPts([])
@@ -127,21 +143,23 @@ export function useDrawingTool({
   const worldPointer = (): Vec2 | null => stageRef.current?.getRelativePointerPosition() ?? null
 
   const resolve = (p: Vec2): { p: Vec2; kind: SnapKind } => {
-    const grid = altRef.current ? undefined : SNAP_GRID
+    // The keys, or for a finger the DrawBar's «Uten rutenett» and «Fri vinkel»
+    const grid = isNoGrid({ altKey: altRef.current }) ? undefined : SNAP_GRID
+    const ortho = !isFreeAngle(shiftRef.current)
     if (tool === 'wall') {
-      const r = snapPoint(p, { walls, anchor, tolerance: tol, ortho: !shiftRef.current, grid })
+      const r = snapPoint(p, { walls, anchor, tolerance: tol, ortho, grid })
       return { p: r.point, kind: r.kind }
     }
     if (tool === 'room' || tool === 'ceiling' || tool === 'run') {
       if (tool !== 'run' && roomPts.length >= 3 && dist(p, roomPts[0]!) < tol)
         return { p: roomPts[0]!, kind: 'endpoint' }
-      const r = snapPoint(p, { walls, anchor: roomPts.at(-1), tolerance: tol, ortho: !shiftRef.current, grid })
+      const r = snapPoint(p, { walls, anchor: roomPts.at(-1), tolerance: tol, ortho, grid })
       return { p: r.point, kind: r.kind }
     }
     if (tool === 'measure') {
       // Like the wall tool, with 45° steps from the first point while the second is picked
       const from = measurement && !measurement.b ? measurement.a : undefined
-      const r = snapPoint(p, { walls, anchor: from, tolerance: tol, ortho: !shiftRef.current, grid })
+      const r = snapPoint(p, { walls, anchor: from, tolerance: tol, ortho, grid })
       return { p: r.point, kind: r.kind }
     }
     return { p, kind: 'none' }
@@ -149,12 +167,33 @@ export function useDrawingTool({
 
   // Length typed while drawing a wall: digits and a decimal comma, Enter places the end that far
   // toward the pointer. Listens in the capture phase, before the editor's shortcuts (Backspace
-  // deletes, Escape leaves the tool), and keeps those keys while a length is being typed.
-  const typedMeters = typedLength === null ? NaN : parseFloat(typedLength.replace(',', '.'))
-  const direction = anchor && cursor && dist(anchor, cursor.p) > 1e-6 ? norm(sub(cursor.p, anchor)) : null
+  // deletes, Escape leaves the tool), and keeps those keys while a length is being typed. The
+  // DrawBar's length field edits the same text, and its «Sett» does what Enter does.
+  const typedMeters = parseLength(typedLength)
   let wallEnd: Vec2 | null = null
   if (tool === 'wall' && anchor)
-    wallEnd = direction && typedMeters > 0 ? add(anchor, mul(direction, typedMeters)) : (cursor?.p ?? null)
+    wallEnd = typedWallEnd(anchor, cursor?.p ?? null, typedMeters, chainDir) ?? cursor?.p ?? null
+
+  /** Ends the wall being drawn at `end`, and the next one starts there. */
+  const placeWall = (from: Vec2, end: Vec2) => {
+    if (dist(from, end) > MIN_TYPED_LENGTH) {
+      addWall(from, end)
+      setChainDir(norm(sub(end, from)))
+    }
+    setAnchor(end)
+    setTypedLength(null)
+  }
+
+  const commitTypedLength = (): boolean => {
+    const longEnough = typedMeters > MIN_TYPED_LENGTH // NaN (nothing typed) is not
+    if (tool !== 'wall' || !anchor || readOnly || !longEnough) return false
+    const end = typedWallEnd(anchor, cursor?.p ?? null, typedMeters, chainDir)
+    if (!end) return false
+    placeWall(anchor, end)
+    return true
+  }
+
+  // Attached again on every render: it acts on the length and the aim as they are now
   useEffect(() => {
     if (tool !== 'wall' || !anchor || readOnly) return
     const onKey = (e: KeyboardEvent) => {
@@ -176,16 +215,12 @@ export function useDrawingTool({
         setTypedLength(null)
       } else if (typedLength !== null && e.key === 'Enter') {
         take()
-        if (wallEnd && typedMeters > 0.05) {
-          addWall(anchor, wallEnd)
-          setAnchor(wallEnd)
-          setTypedLength(null)
-        }
+        commitTypedLength()
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [tool, anchor, readOnly, typedLength, typedMeters, wallEnd, addWall])
+  })
 
   const onPointerMove = (e?: KonvaEventObject<PointerEvent>) => {
     // The pointer event knows Alt too, and is right even when its keyup was missed (Alt+Tab)
@@ -215,7 +250,8 @@ export function useDrawingTool({
   }
 
   const place = (e: KonvaEventObject<PointerEvent>) => {
-    if (e.evt.button !== 0 || readOnly) return
+    // While the calibration question is open, the plan waits for its answer
+    if (e.evt.button !== 0 || readOnly || calPts.length >= 2) return
     altRef.current = e.evt.altKey
     const raw = worldPointer()
     if (!raw) return
@@ -235,16 +271,18 @@ export function useDrawingTool({
     const { p } = resolve(raw)
     switch (tool) {
       case 'select':
-        // A click on empty space lets go of the selection; with Shift (adding to it) it keeps it
-        if ((e.target === e.target.getStage() || e.target.name() === 'bg') && !e.evt.shiftKey) select(null)
+        // A click on empty space lets go of the selection; adding to it (Shift, «Velg flere») keeps it
+        if ((e.target === e.target.getStage() || e.target.name() === 'bg') && !isAdditive(e.evt)) select(null)
         break
       case 'wall': {
         // With a length typed, a click places the wall at that length toward the click
         const end =
           anchor && typedMeters > 0 && dist(anchor, p) > 1e-6 ? add(anchor, mul(norm(sub(p, anchor)), typedMeters)) : p
-        if (anchor && dist(anchor, end) > 0.05) addWall(anchor, end)
-        setAnchor(end)
-        setTypedLength(null)
+        if (anchor) placeWall(anchor, end)
+        else {
+          setAnchor(end)
+          setTypedLength(null)
+        }
         break
       }
       case 'door':
@@ -276,25 +314,26 @@ export function useDrawingTool({
         if (!measurement || measurement.b) setMeasurement({ a: p, b: null })
         else if (dist(measurement.a, p) > 1e-6) setMeasurement({ a: measurement.a, b: p })
         break
-      case 'calibrate': {
-        const pts = [...calPts, raw]
-        if (pts.length < 2) return setCalPts(pts)
-        setCalPts(pts)
-        const input = window.prompt('Hvor langt er dette i virkeligheten? (meter, f.eks. 3,6)')
-        const meters = input ? parseFloat(input.replace(',', '.')) : NaN
-        if (meters > 0) {
-          calibrate(dist(pts[0]!, pts[1]!) * ppm, meters)
-          setManualView(null) // refit to the rescaled drawing
-          setTool('select')
-        }
-        setCalPts([])
+      case 'calibrate':
+        // The second point opens the question for the real distance (see finishCalibration)
+        setCalPts([...calPts, raw])
         break
-      }
     }
+  }
+
+  const finishCalibration = (meters: number | null) => {
+    const [a, b] = calPts
+    if (a && b && meters !== null && meters > 0) {
+      calibrate(dist(a, b) * ppm, meters)
+      setManualView(null) // refit to the rescaled drawing
+      setTool('select')
+    }
+    setCalPts([])
   }
 
   const endChain = () => {
     setAnchor(null)
+    setChainDir(null)
     setTypedLength(null)
     if (tool === 'room' && roomPts.length >= 3) addRoom(roomPts)
     if (tool === 'ceiling' && roomPts.length >= 3) useStore.getState().addLoweredCeiling(roomPts)
@@ -310,8 +349,13 @@ export function useDrawingTool({
     calPts,
     measurement,
     typedLength,
+    setTypedLength,
+    commitTypedLength,
     wallEnd,
     shiftRef,
+    calibrating: tool === 'calibrate' && calPts.length >= 2,
+    finishCalibration,
+    clearMeasurement: () => setMeasurement(null),
     onPointerDown,
     onPointerMove,
     onPointerUp,

@@ -64,6 +64,19 @@ export type Tool =
 export type ViewMode = '2d' | '3d' | 'split' | 'compare'
 export type InspectorTab = 'oversikt' | 'moebler' | 'assistent'
 
+/**
+ * On-screen stand-ins for the keys held while pointing, for a finger that has no Shift or Alt (the
+ * DrawBar's toggles). Each one counts as the key being held: `additive` as Shift on a click (adds
+ * to the selection), `freeAngle` as Shift while drawing (no 45° steps), `noGrid` as Alt (no grid
+ * snapping). See modifiers.ts for the helpers that read "the key OR the toggle".
+ */
+export interface Modifiers {
+  additive: boolean
+  freeAngle: boolean
+  noGrid: boolean
+}
+export const NO_MODIFIERS: Modifiers = Object.freeze({ additive: false, freeAngle: false, noGrid: false })
+
 interface State {
   project: Project | null
   tool: Tool
@@ -82,6 +95,8 @@ interface State {
   dragging3d: boolean
   /** True while a wall, room, ceiling, run or calibration is being drawn in 2D (set by the drawing tool). */
   drawing: boolean
+  /** The on-screen modifier toggles. Not part of the undo history; switched off when the tool changes. */
+  modifiers: Modifiers
   /** Wall thickness used by the wall tool */
   wallThickness: number
   /** Settings for the installation tools */
@@ -96,10 +111,14 @@ interface State {
   setFocus(on: boolean): void
   /** Selects just this item (replacing the selection), or nothing with null. */
   select(item: SelectedItem | null): void
-  /** A click on an item: with `additive` (Shift) it is toggled in or out of the selection, else selected alone. */
+  /**
+   * A click on an item: with `additive` (Shift) or the «Velg flere» toggle on, it is toggled in or
+   * out of the selection, else selected alone.
+   */
   pick(item: SelectedItem, additive: boolean): void
   /** Replaces the selection, or with `add` adds to it (a selection rectangle). */
   setSelection(items: readonly SelectedItem[], add?: boolean): void
+  setModifier(name: keyof Modifiers, on: boolean): void
   setWallThickness(t: number): void
   setInstallationSettings(
     patch: Partial<Pick<State, 'fixtureKind' | 'runKind' | 'runPlacement' | 'showInstallations'>>,
@@ -220,6 +239,7 @@ export const useStore = create<State>()(
       suggestion: null,
       dragging3d: false,
       drawing: false,
+      modifiers: NO_MODIFIERS,
       inspectorTab: 'oversikt',
       wallThickness: DEFAULTS.interiorWallThickness,
       fixtureKind: 'outlet',
@@ -245,8 +265,10 @@ export const useStore = create<State>()(
         else set({ focus: false, view: viewBeforeFocus ?? view, viewBeforeFocus: null })
       },
       select: (item) => set({ selection: item ? [item] : NO_SELECTION }),
-      pick: (item, additive) => (additive ? set({ selection: toggled(get().selection, item) }) : get().select(item)),
+      pick: (item, additive) =>
+        additive || get().modifiers.additive ? set({ selection: toggled(get().selection, item) }) : get().select(item),
       setSelection: (items, add = false) => set({ selection: add ? withAdded(get().selection, items) : [...items] }),
+      setModifier: (name, on) => set({ modifiers: { ...get().modifiers, [name]: on } }),
       setWallThickness: (wallThickness) => set({ wallThickness }),
       setInstallationSettings: (patch) => set(patch),
 
@@ -597,6 +619,13 @@ useStore.subscribe((s, prev) => {
   if (s.project === prev.project || !s.selection.length) return
   const kept = s.project ? existingIn(s.selection, activeScenario(s.project)) : NO_SELECTION
   if (kept !== s.selection) useStore.setState({ selection: kept.length ? kept : NO_SELECTION })
+})
+
+// The modifier toggles belong to the tool they were switched on in: «Fri vinkel» left on from a
+// wall must not surprise the next room, nor «Velg flere» the next time Velg is picked. Whatever
+// changes the tool (a toolbar button, a shortcut, Escape, focus mode, loading a project).
+useStore.subscribe((s, prev) => {
+  if (s.tool !== prev.tool && s.modifiers !== NO_MODIFIERS) useStore.setState({ modifiers: NO_MODIFIERS })
 })
 
 const history = () => useStore.temporal.getState()

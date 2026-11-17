@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { gridLines, gridSpacing, visibleRect } from './planStyle.ts'
+import { gridLines, gridSpacing, HINTS, TOUCH_HINTS, visibleRect } from './planStyle.ts'
+
+describe('hints', () => {
+  it('has a touch hint for every tool, and none of them speaks of keys, a mouse wheel or clicks', () => {
+    expect(Object.keys(TOUCH_HINTS).sort()).toEqual(Object.keys(HINTS).sort())
+    for (const hint of Object.values(TOUCH_HINTS))
+      expect(hint).not.toMatch(/Shift|Alt\b|Esc|Enter|scroll|høyreklikk|klikk/i)
+  })
+})
 
 describe('gridSpacing', () => {
   it('picks the finest grid whose lines stay at least 8 px apart', () => {
