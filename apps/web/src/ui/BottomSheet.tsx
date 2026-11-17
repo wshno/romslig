@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { activeScenario, useStore } from '../store.ts'
-import { nearestSnap, snapAfter, snapOnTap, type SheetSnap, type SheetWatch } from '../sheet.ts'
+import { nearestSnap, snapAfter, snapForPhotoFlow, snapOnTap, type SheetSnap, type SheetWatch } from '../sheet.ts'
+import { onPhotoFlow, photoFlowOpen, type PhotoFlowEvent } from '../photoFlow.ts'
+import { readSession } from './recognizeSession.ts'
 
 const HANDLE_LABELS: Record<SheetSnap, string> = {
   closed: 'Vis panelet',
@@ -32,8 +34,9 @@ interface Drag {
  * The inspector on a phone: a sheet over the bottom of the view, resting closed (handle and tabs),
  * at half or at full height. A tap on the handle moves it a step, a drag moves it freely and lets go
  * at the nearest of the three. It follows the editor too: up when something is selected, down when a
- * drawing tool is picked or a piece is added from the catalog (see snapAfter). Its content scrolls
- * inside it.
+ * drawing tool is picked or a piece is added from the catalog (see snapAfter). While the photo
+ * flow is on screen it takes the full height and leaves those reactions out, and it goes down when
+ * the recognised furniture is added (see snapForPhotoFlow). Its content scrolls inside it.
  */
 export function BottomSheet({ label, children }: { label: string; children: ReactNode }) {
   const [snap, setSnap] = useState<SheetSnap>('closed')
@@ -43,6 +46,13 @@ export function BottomSheet({ label, children }: { label: string; children: Reac
   /** The click that ends a drag is not a tap. */
   const draggedRef = useRef(false)
   const bodyId = useId()
+  /** The snap as of the last render, and where the sheet was when the photo flow opened. */
+  const snapRef = useRef(snap)
+  const beforeRef = useRef<SheetSnap | null>(null)
+
+  useEffect(() => {
+    snapRef.current = snap
+  }, [snap])
 
   useEffect(() => {
     let last = watched()
@@ -51,8 +61,31 @@ export function BottomSheet({ label, children }: { label: string; children: Reac
       const next = watched()
       const prev = last
       last = next
+      // The photo flow has the sheet: adding the recognised furniture selects it, and that must not
+      // bring the sheet back up after the flow sent it down
+      if (photoFlowOpen()) return
       setSnap((current) => snapAfter(current, prev, next))
     })
+  }, [])
+
+  useEffect(() => {
+    const react = (event: PhotoFlowEvent) => {
+      if (event === 'open') beforeRef.current ??= snapRef.current
+      const before = beforeRef.current ?? snapRef.current
+      if (event !== 'open') beforeRef.current = null
+      setSnap((current) => snapForPhotoFlow(event, current, before))
+    }
+    const off = onPhotoFlow(react)
+    if (photoFlowOpen()) {
+      // A panel restored after a reload (Android may drop the tab while the camera is open) came on
+      // screen before this effect ran
+      react('open')
+    } else {
+      // A stored panel opens again in the Oversikt and Møbler tabs: make sure one of them shows
+      const s = useStore.getState()
+      if (s.project && s.inspectorTab === 'assistent' && readSession(s.project.id)) s.setInspectorTab('oversikt')
+    }
+    return off
   }, [])
 
   /** The three resting heights in px, measured now: the view may have changed size since the last drag. */

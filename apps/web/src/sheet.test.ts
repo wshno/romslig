@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nearestSnap, snapAfter, snapOnTap, type SheetWatch } from './sheet.ts'
+import { nearestSnap, snapAfter, snapForPhotoFlow, snapOnTap, type SheetWatch } from './sheet.ts'
 
 const sofa = { kind: 'furniture', id: 'f1' } as const
 const wall = { kind: 'wall', id: 'w1' } as const
@@ -51,6 +51,27 @@ describe('snapAfter', () => {
         watch({ selection: [copy], furnitureIds: ['f1', 'f2'] }),
       ),
     ).toBe('half')
+  })
+})
+
+describe('snapForPhotoFlow', () => {
+  it('takes the full height while the photo flow is open, from wherever it was', () => {
+    expect(snapForPhotoFlow('open', 'closed', 'closed')).toBe('full')
+    expect(snapForPhotoFlow('open', 'half', 'half')).toBe('full')
+  })
+
+  it('goes back to where it was when the flow is closed', () => {
+    expect(snapForPhotoFlow('cancel', 'full', 'half')).toBe('half')
+    expect(snapForPhotoFlow('cancel', 'full', 'closed')).toBe('closed')
+  })
+
+  it('goes down when the furniture is added, so the plan shows it', () => {
+    expect(snapForPhotoFlow('placed', 'full', 'half')).toBe('closed')
+  })
+
+  it('stays when the flow leaves the screen some other way', () => {
+    expect(snapForPhotoFlow('gone', 'full', 'half')).toBe('full')
+    expect(snapForPhotoFlow('gone', 'closed', 'half')).toBe('closed')
   })
 })
 

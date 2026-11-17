@@ -1027,8 +1027,20 @@ select {
     bottom: 0;
     z-index: 1;
     background: #f8fafc;
-    padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+    /* Across the panel's whole width, so nothing scrolls by beside it */
+    margin: 0 -10px;
+    padding: 8px 10px max(8px, env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
+  }
+  /* The newest photo is scrolled into view with its direction picker clear of the buttons */
+  .photo-list li.newest {
+    scroll-margin-bottom: 140px;
+  }
+}
+/* In the phone's bottom sheet the toolbar under it already keeps clear of the screen's bottom edge */
+@media (max-width: 720px) {
+  .sheet .recognize-actions {
+    padding-bottom: 8px;
   }
 }
 
@@ -1080,6 +1092,26 @@ select {
 }
 .api-key-button.set {
   color: var(--ok);
+}
+/* Phone: the dialogs keep a margin to the screen's edges, and a dialog taller than the screen (the
+   key dialog with its text, at 360 px) scrolls inside itself instead of losing its top and bottom */
+@media (max-width: 720px) {
+  .modal-backdrop {
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  }
+  .modal {
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .api-key-form {
+    flex-wrap: wrap;
+  }
+  .api-key-form input {
+    flex-basis: 180px;
+  }
 }
 
 .proposal {
