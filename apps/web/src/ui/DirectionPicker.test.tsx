@@ -55,7 +55,7 @@ describe('DirectionPicker', () => {
     const view = render(<DirectionPicker scenario={scenario} room={room} value={null} onChange={onChange} />)
 
     expect(screen.getByRole('group', { name: 'Velg veggen du ser mot' })).toBeInTheDocument()
-    expect(screen.getByText('Klikk på veggen du så mot')).toHaveClass('muted')
+    expect(screen.getByText('Velg veggen du så mot')).toHaveClass('muted')
     const walls = edges(view)
     expect(walls).toHaveLength(4)
 

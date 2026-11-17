@@ -11,7 +11,12 @@ vi.mock('./AssistantPanel.tsx', () => ({
   NotesList: ({ roomId }: { roomId?: string }) => <p>{`notater ${roomId ?? 'alle'}`}</p>,
 }))
 vi.mock('./RecognizePanel.tsx', () => ({
-  RecognizePanel: ({ onClose }: { onClose(): void }) => <button onClick={onClose}>lukk gjenkjenning</button>,
+  RecognizePanel: ({ room, onClose }: { room: { name: string }; onClose(): void }) => (
+    <div>
+      <p>{`gjenkjenning for ${room.name}`}</p>
+      <button onClick={onClose}>lukk gjenkjenning</button>
+    </div>
+  ),
 }))
 
 const ai = vi.hoisted(() => ({
@@ -70,6 +75,7 @@ beforeEach(() => {
   s().load(newProject())
   resetHistory()
   s().setInspectorTab('oversikt')
+  sessionStorage.removeItem('romslig.recognize')
 })
 
 afterEach(() => {
@@ -127,6 +133,69 @@ describe('the overview', () => {
     expect(scenario().walls.map((w) => w.height)).toEqual(scenario().walls.map(() => 2.6))
     fireEvent.change(spin('Nord'), { target: { value: '45' } })
     expect(project().northAngle).toBe(45)
+  })
+})
+
+describe('taking photos of a room', () => {
+  const stored = (roomId: string, projectId = 'p_test') =>
+    sessionStorage.setItem('romslig.recognize', JSON.stringify({ projectId, roomId, photos: [] }))
+
+  it('opens from the overview through a list of the rooms', () => {
+    room()
+    s().updateRoom(scenario().rooms[0]!.id, { name: 'Stue' })
+    render(<Inspector />)
+
+    fireEvent.click(button('📷 Ta bilde av et rom'))
+    const list = screen.getByRole('list', { name: 'Velg rom' })
+    fireEvent.click(within(list).getByRole('button', { name: /Stue/ }))
+    expect(screen.getByText('gjenkjenning for Stue')).toBeInTheDocument()
+    // The room is not selected in the plan, so the overview stays where it is
+    expect(s().selection).toHaveLength(0)
+
+    fireEvent.click(button('lukk gjenkjenning'))
+    expect(button('📷 Ta bilde av et rom')).toBeInTheDocument()
+  })
+
+  it('explains that rooms come first when the variant has none, and the list can be left', () => {
+    render(<Inspector />)
+
+    fireEvent.click(button('📷 Ta bilde av et rom'))
+    expect(screen.getByText(/Varianten «Nå» har ingen rom ennå/)).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Velg rom' })).not.toBeInTheDocument()
+    fireEvent.click(button('Avbryt'))
+    expect(button('📷 Ta bilde av et rom')).toBeInTheDocument()
+  })
+
+  it('is at the top of the furniture tab too', () => {
+    room()
+    render(<Inspector />)
+    fireEvent.click(button('Møbler'))
+
+    fireEvent.click(button('📷 Ta bilde av et rom'))
+    expect(screen.getByRole('list', { name: 'Velg rom' })).toBeInTheDocument()
+  })
+
+  it('opens the panel again after a reload, for the room it was open for', () => {
+    room()
+    s().updateRoom(scenario().rooms[0]!.id, { name: 'Kjøkken' })
+    stored(scenario().rooms[0]!.id)
+    render(<Inspector />)
+
+    expect(screen.getByText('gjenkjenning for Kjøkken')).toBeInTheDocument()
+  })
+
+  it('forgets a stored panel whose room is gone, or that belongs to another project', () => {
+    room()
+    stored('r_gone')
+    const first = render(<Inspector />)
+    expect(button('📷 Ta bilde av et rom')).toBeInTheDocument()
+    expect(sessionStorage.getItem('romslig.recognize')).toBeNull()
+    first.unmount()
+
+    stored(scenario().rooms[0]!.id, 'p_other')
+    render(<Inspector />)
+    expect(button('📷 Ta bilde av et rom')).toBeInTheDocument()
+    expect(sessionStorage.getItem('romslig.recognize')).toBeNull()
   })
 })
 
