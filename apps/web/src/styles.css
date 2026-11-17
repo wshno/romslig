@@ -1414,6 +1414,19 @@ select {
   .sheet.closed:not(.dragging) .sheet-body > .inspector > :not(.tabs) {
     display: none;
   }
+  /* The closed sheet (handle 24px, tabs 44px, their border) does not lie over the plan or the 3D
+     view: they end where it begins. Otherwise what sits at the bottom of a view, such as the stick
+     for walking in 3D, is under the sheet, and a fitted plan is centred partly behind it. Half and
+     full still slide over the view. */
+  .sheet .tabs button {
+    height: 44px;
+    min-height: 44px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  .views:has(> .sheet) > .views-inner {
+    bottom: 69px;
+  }
 
   /* Compare: the two plans one above the other, the differences folded away at the bottom */
   .compare {
