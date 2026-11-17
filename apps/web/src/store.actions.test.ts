@@ -244,6 +244,37 @@ describe('furniture', () => {
     expect(project().customFurniture.map((c) => c.id)).toEqual(['custom-hylle'])
   })
 
+  it('empties one room of furniture as one undo step, and lets go of what it removed', () => {
+    const piece = (id: string, roomId: string | null) => ({
+      id,
+      catalogId: 'sofa-2',
+      x: 0,
+      y: 0,
+      rotation: 0,
+      roomId,
+      size: null,
+      label: null,
+    })
+    state().addFurnitureItems([piece('f_1', 'r_a'), piece('f_2', 'r_a'), piece('f_3', 'r_b'), piece('f_4', null)])
+    state().setSelection([
+      { kind: 'furniture', id: 'f_1' },
+      { kind: 'furniture', id: 'f_3' },
+    ])
+    const before = steps()
+
+    state().clearRoomFurniture('r_a')
+    expect(scenario().furniture.map((f) => f.id)).toEqual(['f_3', 'f_4'])
+    expect(state().selection).toEqual([{ kind: 'furniture', id: 'f_3' }])
+    expect(steps()).toBe(before + 1)
+
+    // A room with nothing in it: no change and no undo step
+    state().clearRoomFurniture('r_a')
+    expect(steps()).toBe(before + 1)
+
+    useStore.temporal.getState().undo()
+    expect(scenario().furniture).toHaveLength(4)
+  })
+
   it('turns nothing when no furniture is selected, and duplicates nothing', () => {
     state().addFurniture('sofa-3', { x: 2, y: 1.5 }, { snap: false })
     state().select(null)
