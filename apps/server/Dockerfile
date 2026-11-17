@@ -19,7 +19,7 @@ RUN npm run build -w apps/server && mkdir -p /out/data/projects
 
 # Pinned to the digest so Dependabot (docker, weekly) opens a PR when Google rebuilds the image with
 # Debian security fixes. The nonroot variant runs as uid 65532 by itself.
-FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:33c86a63859efc2ebd88ea0a355863582ec6f1220d048de62baffb2584e709b3
+FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:1d736cf8b5716c07a245301f92717143215d248fd55771ee1936ef4b3302e531
 WORKDIR /app
 COPY --from=build /app/apps/server/dist/ /app/
 # Writable data directory for the file store (local runs without PostgreSQL).
