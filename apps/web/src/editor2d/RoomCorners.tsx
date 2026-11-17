@@ -14,6 +14,7 @@ import {
 } from '@romslig/shared'
 import { beginGesture, endGesture, useStore } from '../store.ts'
 import { fmtM2 } from '../theme.ts'
+import { handleHitStroke, useHitSizes } from './hit.ts'
 import { Label } from './planShapes.tsx'
 import { SNAP_GRID } from './planStyle.ts'
 
@@ -50,6 +51,7 @@ export function RoomCorners({
   const [dragging, setDragging] = useState<number | null>(null)
   /** The corner under the pointer, which Delete removes. */
   const hoverRef = useRef<number | null>(null)
+  const hit = useHitSizes()
   const poly = room.polygon
 
   // A drag cut short by unmounting (undo, a variant switch) must not leave the plan thinking it goes on
@@ -80,15 +82,15 @@ export function RoomCorners({
         name="room-edge"
         points={[a.x, a.y, b.x, b.y]}
         stroke="transparent"
-        hitStrokeWidth={10}
+        hitStrokeWidth={hit.line}
         strokeScaleEnabled={false}
         onMouseEnter={(e) => setCursor(e, 'copy')}
         onMouseLeave={(e) => setCursor(e, '')}
-        onClick={(e) => {
+        onPointerClick={(e) => {
           e.cancelBubble = true
           if (e.evt.shiftKey) useStore.getState().pick({ kind: 'room', id: room.id }, true)
         }}
-        onDblClick={(e) => {
+        onPointerDblClick={(e) => {
           e.cancelBubble = true
           const p = e.target.getStage()?.getRelativePointerPosition()
           if (!p) return
@@ -108,10 +110,11 @@ export function RoomCorners({
       name="room-corner"
       x={p.x}
       y={p.y}
-      radius={6 / scale}
+      radius={hit.handle / scale}
       fill="#fff"
       stroke="#2563eb"
       strokeWidth={2}
+      hitStrokeWidth={handleHitStroke(hit.handle, hit.handleHit)}
       strokeScaleEnabled={false}
       draggable
       onMouseEnter={(e) => {
@@ -138,7 +141,7 @@ export function RoomCorners({
           drag.base[(i + 1) % n]!,
           {
             walls,
-            tolerance: 12 / scale,
+            tolerance: hit.snap / scale,
             ortho: !shiftRef.current,
             grid: e.evt.altKey ? undefined : SNAP_GRID,
           },

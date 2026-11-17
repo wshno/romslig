@@ -10,6 +10,7 @@ import {
 } from '@romslig/shared'
 import { beginGesture, endGesture, useStore } from '../store.ts'
 import { isSelected, singleSelected, type Selection, type SelectionKind } from '../selection.ts'
+import { handleHitStroke, useHitSizes } from './hit.ts'
 import { CATEGORY_COLORS, fixturePlacement } from './installationUtils.ts'
 
 const RUN_DASH: Record<string, number[] | undefined> = {
@@ -26,19 +27,33 @@ interface Props {
   selection: Selection
 }
 
+/**
+ * A press on an installation selects it and does not pan the plan, even where the installation
+ * cannot be dragged. Selection happens on pointerdown, but Konva starts the stage's drag from
+ * mousedown/touchstart, which are separate events: they are stopped here before they reach it.
+ */
+const keepStageStill = (interactive: boolean) => {
+  const stop = (e: { cancelBubble: boolean }) => {
+    if (interactive) e.cancelBubble = true
+  }
+  return { onMouseDown: stop, onTouchStart: stop }
+}
+
 /** Lowered ceilings, runs (pipes, ducts, cables) and fixtures in plan view. */
 export function Installations2D({ scenario, scale, interactive, selection }: Props) {
   const { pick, updateFixture, updateRun } = useStore.getState()
   const px = (n: number) => n / scale
+  const hit = useHitSizes()
   // Only the one selected thing gets drag handles
   const alone = singleSelected(selection)?.id
   const selectable = (kind: SelectionKind, id: string) => ({
-    onMouseDown: (e: { cancelBubble: boolean; evt: MouseEvent }) => {
+    onPointerDown: (e: { cancelBubble: boolean; evt: PointerEvent }) => {
       if (!interactive) return
       e.cancelBubble = true
       pick({ kind, id }, e.evt.shiftKey)
     },
-    onClick: (e: { cancelBubble: boolean }) => {
+    ...keepStageStill(interactive),
+    onPointerClick: (e: { cancelBubble: boolean }) => {
       if (interactive) e.cancelBubble = true
     },
   })
@@ -88,7 +103,7 @@ export function Installations2D({ scenario, scale, interactive, selection }: Pro
               lineCap="round"
               lineJoin="round"
               dash={RUN_DASH[r.placement]}
-              hitStrokeWidth={12}
+              hitStrokeWidth={hit.coarse ? hit.line : 12}
               strokeScaleEnabled={false}
               shadowColor={sel ? '#2563eb' : undefined}
               shadowBlur={sel ? 6 : 0}
@@ -103,13 +118,14 @@ export function Installations2D({ scenario, scale, interactive, selection }: Pro
                     key={key}
                     x={p.x}
                     y={p.y}
-                    radius={px(5)}
+                    radius={px(hit.vertex)}
                     fill="#fff"
                     stroke={info.color}
                     strokeWidth={2}
+                    hitStrokeWidth={handleHitStroke(hit.vertex, hit.coarse ? hit.handleHit : hit.vertex)}
                     strokeScaleEnabled={false}
                     draggable
-                    onMouseDown={(e) => (e.cancelBubble = true)}
+                    onPointerDown={(e) => (e.cancelBubble = true)}
                     onDragStart={(e) => {
                       e.cancelBubble = true
                       beginGesture()
@@ -167,12 +183,13 @@ function FixtureSymbol(props: {
       x={fx.x}
       y={fx.y}
       draggable={props.interactive && props.movable}
-      onMouseDown={(e) => {
+      onPointerDown={(e) => {
         if (!props.interactive) return
         e.cancelBubble = true
         props.onSelect(e.evt.shiftKey)
       }}
-      onClick={(e) => {
+      {...keepStageStill(props.interactive)}
+      onPointerClick={(e) => {
         if (props.interactive) e.cancelBubble = true
       }}
       onDragStart={(e) => {
