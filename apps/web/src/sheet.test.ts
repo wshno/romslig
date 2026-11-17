@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nearestSnap, snapAfter, snapForPhotoFlow, snapOnTap, type SheetWatch } from './sheet.ts'
+import { nearestSnap, snapAfter, snapForPhotoFlow, snapOnFocus, snapOnTap, type SheetWatch } from './sheet.ts'
 
 const sofa = { kind: 'furniture', id: 'f1' } as const
 const wall = { kind: 'wall', id: 'w1' } as const
@@ -80,6 +80,18 @@ describe('snapOnTap', () => {
     expect(snapOnTap('closed')).toBe('half')
     expect(snapOnTap('half')).toBe('full')
     expect(snapOnTap('full')).toBe('closed')
+  })
+})
+
+describe('snapOnFocus', () => {
+  it('goes to full height for a text area, so the keyboard leaves room for it', () => {
+    expect(snapOnFocus('half', { tagName: 'TEXTAREA' })).toBe('full')
+    expect(snapOnFocus('full', { tagName: 'TEXTAREA' })).toBe('full')
+  })
+
+  it('stays for other fields and buttons', () => {
+    expect(snapOnFocus('half', { tagName: 'INPUT' })).toBe('half')
+    expect(snapOnFocus('closed', { tagName: 'BUTTON' })).toBe('closed')
   })
 })
 

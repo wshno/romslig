@@ -1,4 +1,7 @@
-/* The print page (#/p/<id>/print): a sheet per variant on screen, and the same sheets on paper. */
+/* The print page (#/p/<id>/print): a sheet per variant on screen, and the same sheets on paper.
+   The class is print-sheet, not sheet: this file is in the bundle on every page, and .sheet is the
+   editor's bottom sheet on a phone. Shared, each one's rules landed on the other (the print sheets
+   lay absolutely positioned at the bottom of a phone screen, and the bottom sheet got a border). */
 .print-page {
   max-width: 920px;
   margin: 0 auto;
@@ -27,13 +30,13 @@
   max-width: 220px;
 }
 
-.sheet {
+.print-sheet {
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 24px;
 }
-.sheet header {
+.print-sheet header {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -42,19 +45,19 @@
   border-bottom: 1px solid var(--border);
   padding-bottom: 8px;
 }
-.sheet header h1 {
+.print-sheet header h1 {
   margin: 0;
   font-size: 20px;
   overflow-wrap: anywhere;
 }
-.sheet header p {
+.print-sheet header p {
   margin: 0;
   overflow-wrap: anywhere;
 }
-.sheet h2 {
+.print-sheet h2 {
   font-size: 15px;
 }
-.sheet .plan {
+.print-sheet .plan {
   display: block;
   width: 100%;
   height: auto;
@@ -62,56 +65,56 @@
   object-fit: contain;
   margin: 12px 0;
 }
-.sheet .lists {
+.print-sheet .lists {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
   gap: 24px;
   align-items: start;
   margin-top: 16px;
 }
-.sheet table {
+.print-sheet table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
-.sheet th,
-.sheet td {
+.print-sheet th,
+.print-sheet td {
   text-align: left;
   padding: 4px 6px;
   border-bottom: 1px solid var(--border);
   overflow-wrap: anywhere;
   vertical-align: top;
 }
-.sheet thead th {
+.print-sheet thead th {
   font-weight: 600;
   color: var(--muted);
   border-bottom-color: #94a3b8;
 }
-.sheet .num {
+.print-sheet .num {
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.sheet tr.group th {
+.print-sheet tr.group th {
   padding-top: 10px;
   font-weight: 600;
 }
-.sheet tfoot th,
-.sheet tfoot td {
+.print-sheet tfoot th,
+.print-sheet tfoot td {
   border-bottom: none;
   border-top: 1px solid #94a3b8;
   font-weight: 600;
 }
-.sheet .fine {
+.print-sheet .fine {
   font-size: 12px;
   margin: 16px 0 0;
 }
 
 @media (max-width: 640px) {
-  .sheet {
+  .print-sheet {
     padding: 16px;
   }
-  .sheet .lists {
+  .print-sheet .lists {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -133,30 +136,30 @@
     padding: 0;
     display: block;
   }
-  .sheet {
+  .print-sheet {
     border: none;
     border-radius: 0;
     padding: 0;
     break-after: page;
   }
-  .sheet:last-child {
+  .print-sheet:last-child {
     break-after: auto;
   }
   /* Leaves room for the heading above and the start of the lists below on the first page */
-  .sheet .plan {
+  .print-sheet .plan {
     max-height: 165mm;
   }
-  .sheet tr {
+  .print-sheet tr {
     break-inside: avoid;
   }
-  .sheet thead {
+  .print-sheet thead {
     display: table-header-group;
   }
   /* A sum belongs at the end of its table, not at the foot of every page the table runs over */
-  .sheet tfoot {
+  .print-sheet tfoot {
     display: table-row-group;
   }
-  .sheet .note {
+  .print-sheet .note {
     border: 1px solid #94a3b8;
     background: none;
   }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Konva from 'konva'
 import { Circle, Group, Image as KImage, Layer, Line, Rect, Stage } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
@@ -14,6 +15,7 @@ import {
   mul,
   norm,
   openingEndGap,
+  removeVertex,
   RUN_INFO,
   sub,
   type Scenario,
@@ -38,6 +40,7 @@ import { isAdditive } from './modifiers.ts'
 import { zoomAt } from './pinch.ts'
 import { usePlanImagePrefs } from './planImagePrefs.ts'
 import { HINTS, SNAP_COLORS, TOUCH_HINTS, wallFill, wallQuad } from './planStyle.ts'
+import { pickedCornerOf, type PickedCorner } from './cornerPick.ts'
 import { RoomCorners } from './RoomCorners.tsx'
 import { RoomEdgeLengths, RoomLabel, RoomShape } from './RoomShape.tsx'
 import { SuggestionOverlay } from './SuggestionOverlay.tsx'
@@ -210,6 +213,21 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
     [selectedRoom, walls],
   )
   const cornerRoom = draggingCorner ? selectedRoom : freeRoom
+  // The corner a finger last touched, for «Fjern hjørne»; forgotten when another room (or none) gets
+  // the handles, so it does not come back when the same room is selected again later
+  const [pickedCorner, setPickedCorner] = useState<PickedCorner | null>(null)
+  const [cornerRoomId, setCornerRoomId] = useState(cornerRoom?.id)
+  if (cornerRoomId !== cornerRoom?.id) {
+    setCornerRoomId(cornerRoom?.id)
+    setPickedCorner(null)
+  }
+  const cornerIndex = interactive ? pickedCornerOf(pickedCorner, cornerRoom) : null
+  const removeCorner = () => {
+    if (!cornerRoom || cornerIndex === null) return
+    const next = removeVertex(cornerRoom.polygon, cornerIndex)
+    setPickedCorner(null)
+    if (next) useStore.getState().setRoomPolygon(cornerRoom.id, next)
+  }
   /** How far the selected wall has been moved while its body is dragged. */
   const [wallMoved, setWallMoved] = useState<number | null>(null)
   /** The opening being dragged, with the wall it lands on (highlighted) and its gap to the nearer end. */
@@ -427,6 +445,8 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
                 scale={scale}
                 shiftRef={shiftRef}
                 onDragging={setDraggingCorner}
+                picked={cornerIndex}
+                onPick={(index) => setPickedCorner({ roomId: cornerRoom.id, index })}
               />
             )}
             {suggestion && <SuggestionOverlay scale={scale} />}
@@ -600,9 +620,16 @@ export function Plan2D({ scenarioId, readOnly = false, compareWith = null, share
           onFinish={endChain}
           onCancel={() => useStore.getState().escape()}
           bottom={sheetCover}
+          corner={
+            cornerRoom && cornerIndex !== null
+              ? { removable: removeVertex(cornerRoom.polygon, cornerIndex) !== null, onRemove: removeCorner }
+              : null
+          }
         />
       )}
-      {calibrating && <CalibrateDialog onDone={finishCalibration} />}
+      {/* In the body, not in the plan: on a tablet the views area is a size container, which is the
+          containing block of anything fixed inside it, so the backdrop would cover only the views */}
+      {calibrating && createPortal(<CalibrateDialog onDone={finishCalibration} />, document.body)}
     </div>
   )
 }

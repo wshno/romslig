@@ -558,6 +558,10 @@ select {
   border-radius: 8px;
   cursor: pointer;
   box-shadow: 0 4px 16px #0002;
+  /* Over the views, the phone's bottom sheet (z-index 10) and the dialogs' backdrop (50) */
+  z-index: 60;
+  max-width: calc(100vw - 32px);
+  overflow-wrap: anywhere;
 }
 
 .tabs {
@@ -568,7 +572,9 @@ select {
   flex: 1;
   border: none;
   border-radius: 0;
-  padding: 10px;
+  /* One line each: in the 300px column "✨ Assistent" broke in two, the ✨ above the word */
+  padding: 10px 6px;
+  white-space: nowrap;
   border-bottom: 2px solid transparent;
 }
 .tabs button.active {
@@ -1135,6 +1141,13 @@ select {
 .save-state.conflict {
   color: var(--danger);
 }
+/* Its text filled the 420px before too; said outright, it also keeps clear of a phone's edges */
+.conflict-dialog {
+  width: min(420px, calc(100vw - 32px));
+}
+.conflict-dialog .row {
+  flex-wrap: wrap;
+}
 
 /* Anthropic key (byok) */
 .api-key-dialog {
@@ -1275,8 +1288,65 @@ select {
   overscroll-behavior: none;
 }
 
-/* Tablet (721–1100px): narrower side columns, and a top bar that scrolls sideways rather than
-   pushing the page wider */
+/* Phone and tablet (up to 1100px, COMPACT_QUERY in device.ts) */
+@media (max-width: 1100px) {
+  /* The top bar's "⋯" menu (TopBar in Editor.tsx): variants, focus, print and the key */
+  .topbar-more {
+    position: relative;
+    flex: none;
+  }
+  .topbar-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 40;
+    width: min(320px, calc(100vw - 16px));
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px #0003;
+  }
+  .topbar-menu .scenario {
+    flex-wrap: wrap;
+  }
+  .topbar-menu .scenario select {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+  }
+  .topbar-menu .row {
+    flex-wrap: wrap;
+  }
+  .topbar > button,
+  .topbar .segmented,
+  .save-state {
+    flex: none;
+  }
+  .save-state {
+    min-width: 0;
+  }
+
+  /* The buttons over the 2D and 3D views: one row that scrolls sideways instead of wrapping over the
+     drawing. A pane is narrow here (250px for 2D beside 3D on a tablet), and the hint at the end
+     of the row took several lines of it. */
+  .plan2d-overlay,
+  .viewer3d-overlay {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .plan2d-overlay > *,
+  .viewer3d-overlay > * {
+    flex: none;
+    white-space: nowrap;
+  }
+}
+
+/* Tablet (721–1100px): narrower side columns. The top bar has its "⋯" menu, so what is left in it
+   fits; the name gives way first. */
 @media (min-width: 721px) and (max-width: 1100px) {
   .editor {
     grid-template-columns: 60px 1fr 260px;
@@ -1284,30 +1354,30 @@ select {
   .editor.wide-inspector {
     grid-template-columns: 60px 1fr 320px;
   }
-  .topbar {
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .topbar > * {
-    flex: none;
-  }
-  .topbar .spacer {
-    flex: 1;
-  }
   .project-name {
-    width: 150px;
-  }
-  .scenario .muted {
-    display: none;
-  }
-  .scenario select {
-    max-width: 150px;
-  }
-  .save-state {
-    min-width: 0;
+    flex: 0 1 240px;
+    width: auto;
+    min-width: 60px;
+    text-overflow: ellipsis;
   }
   .toolbar .label {
     font-size: 10px;
+  }
+  /* 2D beside 3D in a views area taller than wide (a tablet held upright, 500 × 1100px) gave each
+     pane a 250px sliver: there they go one above the other. A size container (the area's size never
+     follows its content: the panes are positioned over it), so the query sees the area itself. */
+  .views {
+    container-type: size;
+  }
+  @container (orientation: portrait) {
+    .views-inner.split {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .views-inner.split > :first-child {
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
   }
 }
 
@@ -1335,6 +1405,17 @@ select {
   }
   .project-list .project-actions {
     flex-wrap: wrap;
+  }
+  .card {
+    padding: 16px 14px;
+  }
+  .new-project input[type='file'] {
+    max-width: 100%;
+  }
+  /* Renaming gets a line of its own under the picture, so the field is more than a sliver beside
+     its two buttons */
+  .project-list .rename {
+    flex-basis: 100%;
   }
   /* 22px of versions is a lot on a phone; the project list still shows them */
   .editor ~ .site-footer {
@@ -1384,34 +1465,16 @@ select {
   .save-state.dot.saving {
     background: #f59e0b;
   }
-  .topbar-more {
-    position: relative;
-    flex: none;
-  }
-  .topbar-menu {
-    position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
-    z-index: 40;
-    width: min(320px, calc(100vw - 16px));
-    display: grid;
-    gap: 12px;
-    padding: 12px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: 0 8px 24px #0003;
-  }
-  .topbar-menu .scenario {
+  /* A save state in words (not saved, trying again, conflict) has no room beside the rest at 412px
+     and pushed the page wider: it gets a line of its own under the bar */
+  .topbar {
     flex-wrap: wrap;
   }
-  .topbar-menu .scenario select {
-    flex: 1;
-    min-width: 0;
-    max-width: none;
-  }
-  .topbar-menu .row {
-    flex-wrap: wrap;
+  .topbar .save-state:not(.dot) {
+    order: 1;
+    flex: 1 0 100%;
+    margin-bottom: 4px;
+    text-align: center;
   }
 
   /* Toolbar: one row along the bottom that scrolls sideways, the picked tool's options above it */
@@ -1550,18 +1613,21 @@ select {
     cursor: pointer;
   }
 
-  /* The buttons over the 2D and 3D views: one row that scrolls sideways instead of wrapping over
-     half the drawing */
-  .plan2d-overlay,
-  .viewer3d-overlay {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
+  /* An error toast at the top of the views, right under the top bar (it is rendered in the views):
+     at the bottom of the screen it lay over the toolbar, and the closed sheet over the views */
+  .toast {
+    position: absolute;
+    top: 8px;
+    bottom: auto;
+    width: max-content;
+    max-width: calc(100% - 16px);
   }
-  .plan2d-overlay > *,
-  .viewer3d-overlay > * {
-    flex: none;
-    white-space: nowrap;
+
+  /* In the sheet the panel itself scrolls: the catalog gets its full length instead of a list that
+     scrolls inside a sheet that scrolls */
+  .sheet .catalog-list {
+    max-height: none;
+    overflow: visible;
   }
 }
 
@@ -1574,6 +1640,19 @@ select {
   }
   button:not(.link) {
     min-height: 40px;
+  }
+  /* Links that stand alone as actions (not inside a sentence) get a finger-sized target too: the
+     project list's Gi nytt navn, Kopier, Eksporter, Slett, and the inspector's ← Oversikt and Slett */
+  .project-list .project-actions button.link,
+  .inspector-header button.link {
+    min-height: 44px;
+    padding: 0 6px;
+  }
+  .project-list .project-info a {
+    padding: 6px 0;
+  }
+  .new-project input[type='file'] {
+    min-height: 44px;
   }
 }
 

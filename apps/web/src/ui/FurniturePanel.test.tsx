@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { act, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { emptyScenario, type CustomFurniture, type Project } from '@romslig/shared'
+import { COARSE_QUERY } from '../device.ts'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
+import { stubMatchMedia } from '../test/matchMedia.ts'
 import { activeScenario, resetHistory, useStore } from '../store.ts'
 import { FurnitureCatalog, FurnitureList, FurnitureProps } from './FurniturePanel.tsx'
 
@@ -139,6 +141,23 @@ describe('FurnitureCatalog', () => {
     })
     fireEvent(button, drag)
     expect(data.get(FURNITURE_DND_TYPE)).toBe('custom_benk')
+  })
+
+  it('tells a mouse to drag or click, and a finger to tap', () => {
+    const { unmount } = render(<FurnitureCatalog />)
+    expect(screen.getByText(/Dra et møbel inn i 2D eller 3D/)).toBeInTheDocument()
+    expect(catalogButton(/Snekret benk/)).toHaveAttribute('title', 'Dra inn i tegningen, eller klikk for å legge til')
+    unmount()
+
+    stubMatchMedia({ [COARSE_QUERY]: true })
+    try {
+      render(<FurnitureCatalog />)
+      expect(screen.getByText('Trykk på et møbel for å legge det i et passende rom.')).toBeInTheDocument()
+      expect(screen.queryByText(/Dra et møbel/)).not.toBeInTheDocument()
+      expect(catalogButton(/Snekret benk/)).toHaveAttribute('title', 'Trykk for å legge til')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 

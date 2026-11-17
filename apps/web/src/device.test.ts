@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { COARSE_QUERY, NARROW_QUERY, useCoarsePointer, useIsNarrow } from './device.ts'
+import { COARSE_QUERY, COMPACT_QUERY, NARROW_QUERY, useCoarsePointer, useIsCompact, useIsNarrow } from './device.ts'
 import { stubMatchMedia } from './test/matchMedia.ts'
 
 describe('device', () => {
@@ -26,6 +26,14 @@ describe('device', () => {
 
     unmount()
     expect(media.listening(NARROW_QUERY)).toBe(0)
+  })
+
+  it('tells a tablet-wide window (compact) from a phone-wide one (narrow)', () => {
+    const media = stubMatchMedia({ [COMPACT_QUERY]: true, [NARROW_QUERY]: false })
+    const { result } = renderHook(() => [useIsCompact(), useIsNarrow()])
+    expect(result.current).toEqual([true, false])
+    media.set(COMPACT_QUERY, false)
+    expect(result.current).toEqual([false, false])
   })
 
   it('follows the pointer on its own: a wide touch tablet is coarse, a narrow desktop window is not', () => {

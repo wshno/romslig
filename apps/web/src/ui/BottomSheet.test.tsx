@@ -81,6 +81,27 @@ describe('BottomSheet', () => {
     expect(sheet()).toHaveClass('half')
   })
 
+  it('goes to full height when a text area in it gets the focus', () => {
+    render(
+      <div>
+        <BottomSheet label="Egenskaper">
+          <aside className="inspector">
+            <div className="tabs">
+              <button>Assistent</button>
+            </div>
+            <input aria-label="Navn" />
+            <textarea aria-label="Spørsmål" />
+          </aside>
+        </BottomSheet>
+      </div>,
+    )
+    fireEvent.click(handle())
+    act(() => screen.getByRole('textbox', { name: 'Navn' }).focus())
+    expect(sheet()).toHaveClass('half')
+    act(() => screen.getByRole('textbox', { name: 'Spørsmål' }).focus())
+    expect(sheet()).toHaveClass('full')
+  })
+
   it('comes up when something is selected, and goes down for a drawing tool', () => {
     renderSheet()
     act(() => {

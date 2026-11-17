@@ -92,10 +92,22 @@ test.describe('@mobile tablet layout', () => {
       expect((await page.locator('.toolbar').boundingBox())!.width).toBe(60)
       expect((await page.locator('.inspector').boundingBox())!.width).toBe(260)
       expect((await page.locator('.views').boundingBox())!.width).toBeGreaterThanOrEqual(300)
-      // The full top bar, not the phone's ⋯ menu, and no bottom sheet
-      await expect(page.getByRole('button', { name: 'Flere valg' })).toHaveCount(0)
+      // No bottom sheet, but the phone's ⋯ menu: the whole bar did not fit and scrolled sideways
       await expect(sheet(page)).toHaveCount(0)
       await expect(page.getByRole('button', { name: '2D + 3D', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Flere valg' })).toBeVisible()
+      await expect(page.getByText('Lagret', { exact: true })).toBeVisible()
+      const bar = await page.locator('.topbar').evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }))
+      expect(bar.scroll).toBeLessThanOrEqual(bar.client)
+
+      // 2D + 3D in an upright views area: one above the other, each the full width
+      await page.getByRole('button', { name: '2D + 3D', exact: true }).tap()
+      await expect(page.locator('.viewer3d')).toBeVisible()
+      const plan2d = (await page.locator('.plan2d').boundingBox())!
+      const viewer = (await page.locator('.viewer3d').boundingBox())!
+      expect(plan2d.width).toBeGreaterThanOrEqual(400)
+      expect(viewer.width).toBeGreaterThanOrEqual(400)
+      expect(plan2d.y + plan2d.height).toBeLessThanOrEqual(viewer.y + 1)
       await expectNoSidewaysScroll(page)
     } finally {
       await removeProject(page, id)

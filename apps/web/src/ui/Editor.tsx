@@ -4,7 +4,7 @@ import { Plan2D } from '../editor2d/Plan2D.tsx'
 import { Viewer3D } from '../viewer3d/Viewer3D.tsx'
 import { activeScenario, redo, resetHistory, undo, useStore, type Tool, type ViewMode } from '../store.ts'
 import { useHistory, useTypingAsOneUndoStep } from '../hooks.ts'
-import { useIsNarrow } from '../device.ts'
+import { useIsCompact, useIsNarrow } from '../device.ts'
 import { Inspector } from './Inspector.tsx'
 import { CompareView } from './CompareView.tsx'
 import { BottomSheet } from './BottomSheet.tsx'
@@ -215,11 +215,18 @@ export function Editor({ projectId }: { projectId: string }) {
             <Inspector />
           </BottomSheet>
         )}
+        {/* In the views, so that on a phone it can sit at their top, right under the top bar
+            however tall that is, and over the bottom sheet (styles.css) */}
+        {error && (
+          <div className="toast error" onClick={() => setError(null)}>
+            {error}
+          </div>
+        )}
       </main>
       {!focus && !narrow && <Inspector />}
       {conflict && (
         <div className="modal-backdrop">
-          <div className="modal" role="alertdialog" aria-labelledby="conflict-title">
+          <div className="modal conflict-dialog" role="alertdialog" aria-labelledby="conflict-title">
             <h3 id="conflict-title">Endret på en annen enhet</h3>
             <p>
               Prosjektet er lagret fra en annen fane eller enhet etter at du åpnet det. Endringene dine siden da er ikke
@@ -236,11 +243,6 @@ export function Editor({ projectId }: { projectId: string }) {
         </div>
       )}
       {keyDialogOpen && <ApiKeyDialog />}
-      {error && (
-        <div className="toast error" onClick={() => setError(null)}>
-          {error}
-        </div>
-      )}
     </div>
   )
 }
@@ -266,12 +268,15 @@ function ViewPanes() {
 }
 
 /**
- * The bar over the editor. On a phone it keeps what is used all the time (back, name, undo, redo,
- * the view, the save state) and moves the rest into a "⋯" menu: the same controls, not copies.
+ * The bar over the editor. On a phone or tablet it keeps what is used all the time (back, name,
+ * undo, redo, the view, the save state) and moves the rest into a "⋯" menu: the same controls, not
+ * copies. A tablet's 820px did not hold them all, and the bar scrolled sideways with the save state
+ * out of sight at its end.
  */
 function TopBar({ save, onRetry }: { save: SaveStatus; onRetry: () => void }) {
   const project = useStore((s) => s.project)!
   const narrow = useIsNarrow()
+  const compact = useIsCompact() || narrow
   const stored = useStore((s) => s.view)
   const view = shownView(stored, narrow)
   const focus = useStore((s) => s.focus)
@@ -395,7 +400,7 @@ function TopBar({ save, onRetry }: { save: SaveStatus; onRetry: () => void }) {
       </span>
     )
 
-  if (narrow)
+  if (compact)
     return (
       <header className="topbar">
         {back}
@@ -424,7 +429,7 @@ function TopBar({ save, onRetry }: { save: SaveStatus; onRetry: () => void }) {
 }
 
 /**
- * The phone top bar's "⋯" menu. Closes on a tap outside it, on Escape, and after a button in it is
+ * The phone and tablet top bar's "⋯" menu. Closes on a tap outside it, on Escape, and after a button in it is
  * used; picking another variant leaves it open.
  */
 function TopBarMenu({

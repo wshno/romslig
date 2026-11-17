@@ -24,13 +24,19 @@ export interface DrawBarProps {
   onCancel(): void
   /** How far from the bottom of the plan the bar sits, in px (above the phone's bottom sheet). */
   bottom?: number
+  /**
+   * A corner of the selected room that a finger touched (cornerPick.ts): «Fjern hjørne» removes it,
+   * as Delete does over a corner with a mouse. Not removable when only three corners are left.
+   */
+  corner?: { removable: boolean; onRemove(): void } | null
 }
 
 /**
  * Buttons at the bottom of the plan for what the keyboard does while drawing: «Ferdig» (double-click,
  * Escape or right-click), «Avbryt» (Escape), the wall's length (digits and Enter), «Fjern måling», and
  * toggles that stand in for the keys held while pointing: «Fri vinkel» (Shift), «Uten rutenett» (Alt)
- * and, with Velg, «Velg flere» (Shift+click, Shift+drag).
+ * and, with Velg, «Velg flere» (Shift+click, Shift+drag) and «Fjern hjørne» for a room corner a
+ * finger touched (Delete over the corner).
  *
  * A finger (coarse pointer) has it whenever the tool has something to offer; a mouse only while
  * something is being drawn or measured, so the desktop plan looks as before the rest of the time.
@@ -45,7 +51,8 @@ export function DrawBar(props: DrawBarProps) {
   const showLength = tool === 'wall' && wallStarted
   const showClear = tool === 'measure' && measuring
   const showSelectMany = tool === 'select' && coarse
-  if (!showToggles && !showCancel && !showClear && !showSelectMany) return null
+  const corner = tool === 'select' ? props.corner : null
+  if (!showToggles && !showCancel && !showClear && !showSelectMany && !corner) return null
 
   const toggle = (name: keyof Modifiers, label: string, title: string) => (
     <button
@@ -100,6 +107,16 @@ export function DrawBar(props: DrawBarProps) {
       {showClear && (
         <button type="button" onClick={props.onClearMeasurement} title="Fjern målingen (Esc)">
           Fjern måling
+        </button>
+      )}
+      {corner && (
+        <button
+          type="button"
+          disabled={!corner.removable}
+          onClick={corner.onRemove}
+          title={corner.removable ? 'Fjern hjørnet du trykket på (som Delete)' : 'Et rom må ha minst tre hjørner'}
+        >
+          Fjern hjørne
         </button>
       )}
       {showToggles && toggle('freeAngle', 'Fri vinkel', 'Tegn i alle vinkler, ikke bare i 45°-trinn (som Shift)')}

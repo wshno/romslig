@@ -16,6 +16,7 @@ import {
   type RoomType,
   type Scenario,
 } from '@romslig/shared'
+import { useCoarsePointer } from '../device.ts'
 import { FURNITURE_DND_TYPE } from '../dnd.ts'
 import { describeIssue, useFurnitureIssues } from '../hooks.ts'
 import { activeScenario, useStore } from '../store.ts'
@@ -62,6 +63,9 @@ export function FurnitureCatalog() {
   const [category, setCategory] = useState<FurnitureCategory | 'alle'>('alle')
   const q = query.trim().toLowerCase()
   const own = useStore((s) => s.project?.customFurniture ?? [])
+  // Dragging from the list into the plan is for a mouse (on a phone the sheet lies over the plan), so a
+  // finger is told to tap
+  const coarse = useCoarsePointer()
   const matches = (c: CatalogItem) =>
     (category === 'alle' || c.category === category) && (!q || c.name.toLowerCase().includes(q))
   // The project's own furniture first, then the shared catalog
@@ -74,7 +78,11 @@ export function FurnitureCatalog() {
   return (
     <section className="catalog">
       <h4>Katalog</h4>
-      <p className="muted">Dra et møbel inn i 2D eller 3D, eller klikk for å legge det i et passende rom.</p>
+      <p className="muted">
+        {coarse
+          ? 'Trykk på et møbel for å legge det i et passende rom.'
+          : 'Dra et møbel inn i 2D eller 3D, eller klikk for å legge det i et passende rom.'}
+      </p>
       <div className="row">
         <input placeholder="Søk…" value={query} onChange={(e) => setQuery(e.target.value)} />
         <select value={category} onChange={(e) => setCategory(e.target.value as FurnitureCategory | 'alle')}>
@@ -96,7 +104,7 @@ export function FurnitureCatalog() {
                 e.dataTransfer.effectAllowed = 'copy'
               }}
               onClick={() => add(c)}
-              title="Dra inn i tegningen, eller klikk for å legge til"
+              title={coarse ? 'Trykk for å legge til' : 'Dra inn i tegningen, eller klikk for å legge til'}
             >
               <i style={{ background: c.color }} />
               <span>
