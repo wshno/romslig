@@ -275,6 +275,26 @@ function OpeningProps({ o }: { o: Opening }) {
   )
 }
 
+/**
+ * Empties the room of furniture in one go, e.g. to start over after a photo recognition that got it
+ * wrong. Asks first, since it takes many pieces at once; Angre brings them all back in one step.
+ */
+function ClearRoomFurniture({ room }: { room: Room }) {
+  const count = useStore((s) => activeScenario(s.project!).furniture.filter((f) => f.roomId === room.id).length)
+  if (!count) return null
+  return (
+    <button
+      className="danger"
+      onClick={() => {
+        if (confirm(`Fjerne alle ${count} møbler i «${room.name}»? Du kan angre etterpå.`))
+          useStore.getState().clearRoomFurniture(room.id)
+      }}
+    >
+      Fjern alle møbler i rommet ({count})
+    </button>
+  )
+}
+
 function RoomProps({ room, walls }: { room: Room; walls: Wall[] }) {
   const update = (p: Partial<Room>) => useStore.getState().updateRoom(room.id, p)
   const area = polygonArea(room.polygon)
@@ -330,6 +350,7 @@ function RoomProps({ room, walls }: { room: Room; walls: Wall[] }) {
       )}
       <h4>Møbler i rommet</h4>
       <FurnitureList roomId={room.id} />
+      <ClearRoomFurniture room={room} />
       <PhotoEntry room={room} label="📷 Gjenkjenn møbler fra bilder" />
       <NotesList roomId={room.id} />
       <button

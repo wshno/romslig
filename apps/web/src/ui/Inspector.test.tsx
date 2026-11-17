@@ -387,6 +387,34 @@ describe('a selected room', () => {
     expect(scenario().rooms[0]!.statedArea).toBeNull()
   })
 
+  it('removes all the furniture in the room after asking, and offers it only when there is some', () => {
+    room()
+    const id = scenario().rooms[0]!.id
+    s().select({ kind: 'room', id })
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    render(<Inspector />)
+    expect(screen.queryByRole('button', { name: /Fjern alle møbler/ })).not.toBeInTheDocument()
+
+    change(() => {
+      s().addFurniture('sofa-2', { x: 1, y: 1 }, { snap: false })
+      s().addFurniture('sofa-2', { x: 3, y: 2 }, { snap: false })
+      s().addFurniture('sofa-2', { x: 20, y: 20 }, { snap: false }) // outside the room
+      s().select({ kind: 'room', id })
+    })
+    fireEvent.click(button('Fjern alle møbler i rommet (2)'))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('alle 2 møbler'))
+    expect(scenario().furniture).toHaveLength(3)
+
+    confirm.mockReturnValue(true)
+    fireEvent.click(button('Fjern alle møbler i rommet (2)'))
+    expect(scenario().furniture).toHaveLength(1)
+    expect(scenario().furniture[0]!.roomId).toBeNull()
+    // Still on the room, with nothing left to remove
+    expect(screen.getByRole('textbox', { name: 'Navn' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Fjern alle møbler/ })).not.toBeInTheDocument()
+  })
+
   it('opens photo recognition, and hands over to the assistant', () => {
     s().addRoom([
       { x: 0, y: 0 },

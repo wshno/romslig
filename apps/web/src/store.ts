@@ -161,6 +161,8 @@ interface State {
   addFurniture(catalogId: string, at: Vec2, opts?: { snap?: boolean; rotation?: number }): void
   /** Adds several finished items in one undo step. */
   addFurnitureItems(items: FurnitureItem[]): void
+  /** Removes every piece of furniture that stands in the room, as one undo step. */
+  clearRoomFurniture(roomId: string): void
   /** Adds furniture types of the project's own (not in the catalog). */
   addCustomFurniture(items: CustomFurniture[]): void
   updateFurniture(id: string, patch: Partial<FurnitureItem>): void
@@ -414,6 +416,18 @@ export const useStore = create<State>()(
       addCustomFurniture: (items) =>
         get().updateProject((p) => ({ ...p, customFurniture: [...p.customFurniture, ...items] })),
       addFurnitureItems: (items) => get().updateScenario((s) => ({ ...s, furniture: [...s.furniture, ...items] })),
+      clearRoomFurniture: (roomId) => {
+        const gone = new Set(
+          activeScenario(get().project!)
+            .furniture.filter((f) => f.roomId === roomId)
+            .map((f) => f.id),
+        )
+        if (!gone.size) return
+        get().updateScenario((s) => ({ ...s, furniture: s.furniture.filter((f) => !gone.has(f.id)) }))
+        // A removed piece cannot stay selected; the room itself (and anything else) does
+        const selection = get().selection.filter((x) => !gone.has(x.id))
+        if (selection.length !== get().selection.length) set({ selection: selection.length ? selection : NO_SELECTION })
+      },
       updateFurniture: (id, patch) =>
         get().updateScenario((s) => ({
           ...s,
