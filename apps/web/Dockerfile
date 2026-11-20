@@ -23,7 +23,7 @@ ENV VITE_APP_VERSION=${APP_VERSION} \
 RUN npm run build -w apps/web
 
 # Tag and digest pinned, so Dependabot (docker, weekly) opens a PR for each static-server release.
-FROM ghcr.io/wshno/static-server/server:0.2.1@sha256:0f93a3658da63f0da8712aa5f8c6e469272d81a914786dcaf7c3c38378350c6e
+FROM ghcr.io/wshno/static-server/server:0.3.0@sha256:da3d6a56928f1f67982fade4fe0c9d1e062b295b0b186af81c4e0ae4cf95e361
 COPY --from=build /app/apps/web/dist/ /public/
 # Identical but for the CSP header name; CSP_MODE in deploy/ picks one through STATIC_SERVER_CONFIG.
 COPY apps/web/static-server.report-only.json apps/web/static-server.enforce.json /etc/static-server/
