@@ -9,7 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.6.0",
+    "@anthropic-ai/sdk": "^1.8.0",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "@romslig/ai": "*",
